@@ -1,0 +1,176 @@
+from __future__ import annotations
+
+from mwongozo_smart.core.models import Institution
+from mwongozo_smart.data.sqlite_store import load_institutions, seed_institutions
+
+
+_DEFAULT_INSTITUTIONS: list[Institution] = [
+    Institution(
+        code="SUMAIT",
+        name="Abdulrahman Al- Sumait University",
+        city="Zanzibar",
+        region="Zanzibar",
+        website="https://www.sumait.ac.tz/",
+        apply_url="https://www.sumait.ac.tz/",
+    ),
+    Institution(
+        code="AKU",
+        name="Aga Khan University",
+        city="Dar es Salaam",
+        region="Dar es Salaam",
+        website="https://www.aku.edu/",
+        apply_url="https://www.aku.edu/admissions/Pages/home.aspx",
+    ),
+    Institution(
+        code="CUHAS",
+        name="Catholic University of Health and Allied Sciences",
+        city="Mwanza",
+        region="Mwanza",
+        website="https://bugando.ac.tz/",
+        apply_url="https://osim.bugando.ac.tz/apply/bachelor?step=2",
+    ),
+    Institution(
+        code="CUOM",
+        name="Catholic University of Mbeya",
+        city="Mbeya",
+        region="Mbeya",
+        website="https://www.cuom.ac.tz/",
+        apply_url="https://oas.cuom.ac.tz/",
+    ),
+    Institution(
+        code="A3IPS",
+        name="A3 Institute of Professional Studies",
+        city="Kibaha",
+        region="Pwani",
+        website="https://wipahs.co.tz/",
+        apply_url="https://wipahs.co.tz/",
+    ),
+    Institution(
+        code="HIHS",
+        name="Haydom Institute of Health Sciences",
+        city="Haydom",
+        region="Manyara",
+        website="https://www.hihs.ac.tz/",
+        apply_url="https://www.hihs.ac.tz/",
+    ),
+    Institution(
+        code="AMUCTA",
+        name="Archbishop Mihayo University College of Tabora",
+        city="Tabora",
+        region="Tabora",
+        website="https://www.amucta.ac.tz/",
+        apply_url="https://www.amucta.ac.tz/",
+    ),
+    Institution(
+        code="ARU",
+        name="Ardhi University",
+        city="Dar es Salaam",
+        region="Dar es Salaam",
+        website="https://www.aru.ac.tz/",
+        apply_url="https://admission.aru.ac.tz/",
+    ),
+    Institution(
+        code="CBE",
+        name="College of Business Education",
+        city="Dar es Salaam",
+        region="Dar es Salaam",
+        website="https://www.cbe.ac.tz/",
+        apply_url="https://www.cbe.ac.tz/admission/online-application",
+    ),
+    Institution(
+        code="DIT",
+        name="Dar es Salaam Institute of Technology",
+        city="Dar es Salaam",
+        region="Dar es Salaam",
+        website="https://www.dit.ac.tz/",
+        apply_url="https://admission.dit.ac.tz/",
+    ),
+    Institution(
+        code="DMI",
+        name="Dar es Salaam Maritime Institute",
+        city="Dar es Salaam",
+        region="Dar es Salaam",
+        website="https://www.dmi.ac.tz/",
+        apply_url="https://www.dmi.ac.tz/welcome",
+    ),
+    Institution(
+        code="DUCE",
+        name="Dar es Salaam University College of Education",
+        city="Dar es Salaam",
+        region="Dar es Salaam",
+        website="https://duce.ac.tz/duce",
+        apply_url="https://duce.ac.tz/duce/undergraduate-programmes",
+    ),
+    Institution(
+        code="IFM",
+        name="Institute of Finance Management",
+        city="Dar es Salaam",
+        region="Dar es Salaam",
+        website="https://www.ifm.ac.tz/",
+        apply_url="https://ems.ifm.ac.tz/application",
+    ),
+    Institution(
+        code="MUHAS",
+        name="Muhimbili University of Health and Allied Sciences",
+        city="Dar es Salaam",
+        region="Dar es Salaam",
+        website="https://www.muhas.ac.tz/",
+        apply_url="https://admission.muhas.ac.tz/",
+    ),
+    Institution(
+        code="KCMCU",
+        name="Kilimanjaro Christian Medical University College",
+        city="Moshi",
+        region="Kilimanjaro",
+        website="https://kcmuco.ac.tz/",
+        apply_url="https://osim.kcmuco.ac.tz/apply/bachelor?step=2",
+    ),
+    Institution(
+        code="RUCU",
+        name="Ruaha Catholic University",
+        city="Iringa",
+        region="Iringa",
+        website="https://www.rucu.ac.tz/",
+        apply_url="https://oas.rucu.ac.tz/login",
+    ),
+    Institution(
+        code="SUA",
+        name="Sokoine University of Agriculture",
+        city="Morogoro",
+        region="Morogoro",
+        website="https://www.sua.ac.tz/",
+        apply_url="https://esb.sua.ac.tz/login",
+    ),
+    Institution(
+        code="UDSM",
+        name="University of Dar es Salaam",
+        city="Dar es Salaam",
+        region="Dar es Salaam",
+        website="https://www.udsm.ac.tz/",
+        apply_url="https://admission.udsm.ac.tz/",
+    ),
+    Institution(
+        code="OUT",
+        name="Open University of Tanzania",
+        city="Dar es Salaam",
+        region="Dar es Salaam",
+        website="https://www.out.ac.tz/",
+        apply_url="https://admission.out.ac.tz/Programq",
+    ),
+    Institution(
+        code="UOI",
+        name="University of Iringa",
+        city="Iringa",
+        region="Iringa",
+        website="https://www.uoi.ac.tz/",
+        apply_url="https://oas.uoi.ac.tz/login/",
+    ),
+]
+
+
+seed_institutions(_DEFAULT_INSTITUTIONS)
+INSTITUTIONS: list[Institution] = load_institutions(_DEFAULT_INSTITUTIONS)
+
+
+def institution_index() -> dict[str, Institution]:
+    return {institution.code: institution for institution in INSTITUTIONS}

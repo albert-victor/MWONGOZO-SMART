@@ -1,0 +1,1323 @@
+<!doctype html>
+<html lang="sw">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mwongozo Smart</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
+  <style>
+    :root{
+      --bg:#eef4fb;
+      --panel:rgba(255,255,255,.86);
+      --panel-2:rgba(245,249,252,.92);
+      --line:rgba(100,116,139,.16);
+      --text:#0f172a;
+      --muted:#5b6b82;
+      --accent:#0ea5e9;
+      --accent-2:#22c55e;
+      --warn:#d97706;
+      --danger:#e11d48;
+      --shadow:0 18px 40px rgba(15,23,42,.10);
+    }
+    *{box-sizing:border-box}
+    html{scroll-behavior:smooth}
+    body{
+      margin:0;
+      font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(14,165,233,.12), transparent 28%),
+        radial-gradient(circle at top right, rgba(34,197,94,.10), transparent 26%),
+        radial-gradient(circle at bottom right, rgba(56,189,248,.08), transparent 24%),
+        linear-gradient(180deg, #f8fbff 0%, var(--bg) 100%);
+      color:var(--text);
+    }
+    body[data-theme="light"]{
+      --bg:#eef5fb;
+      --panel:rgba(255,255,255,.96);
+      --panel-2:rgba(243,247,251,.96);
+      --line:rgba(100,116,139,.18);
+      --text:#0f172a;
+      --muted:#53657c;
+      --shadow:0 18px 40px rgba(15,23,42,.12);
+      --accent:#0284c7;
+      --accent-2:#059669;
+      --warn:#b45309;
+      --danger:#be123c;
+    }
+    body[data-theme="dark"]{
+      --bg:#07111f;
+      --panel:rgba(10,16,29,.92);
+      --panel-2:rgba(15,23,42,.88);
+      --line:rgba(148,163,184,.20);
+      --text:#e5eefc;
+      --muted:#93a3bb;
+      --accent:#67e8f9;
+      --accent-2:#34d399;
+      --warn:#fbbf24;
+      --danger:#fb7185;
+      --shadow:0 18px 40px rgba(0,0,0,.25);
+      background:
+        radial-gradient(circle at top left, rgba(52,211,153,.10), transparent 30%),
+        radial-gradient(circle at top right, rgba(103,232,249,.10), transparent 28%),
+        linear-gradient(180deg, var(--bg) 0%, #091525 100%);
+    }
+    .wrap{max-width:1180px;margin:0 auto;padding:22px}
+    .hero,.card,.result-card{
+      border:1px solid var(--line);
+      box-shadow:var(--shadow);
+      backdrop-filter: blur(10px);
+    }
+    .hero{
+      position:relative;
+      border-radius:24px;
+      padding:24px;
+      background:linear-gradient(135deg, rgba(255,255,255,.96), rgba(235,245,255,.90));
+    }
+    body[data-theme="dark"] .hero{background:linear-gradient(135deg, rgba(15,23,42,.96), rgba(8,47,73,.92));}
+    .hero h1{margin:0 0 8px;font-size:2.3rem;line-height:1.05}
+    .hero p{margin:0;max-width:940px;color:var(--muted);line-height:1.7}
+    .pill-row{display:flex;flex-wrap:wrap;gap:10px;margin-top:16px}
+    .pill{padding:8px 12px;border-radius:999px;background:rgba(14,165,233,.08);border:1px solid rgba(14,165,233,.14);color:var(--text)}
+    .layout{display:block;margin-top:18px}
+    .card{
+      border-radius:22px;
+      padding:18px;
+      background:var(--panel);
+    }
+    .page-view{display:block}
+    .page-view.hidden{display:none}
+    #resultsView{min-height:calc(100vh - 190px)}
+    .section-title{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:12px}
+    .section-title h2,.section-title h3{margin:0}
+    .muted{color:var(--muted)}
+    .small{font-size:.92rem}
+    .btn{
+      border:0;
+      border-radius:14px;
+      padding:12px 14px;
+      font-weight:800;
+      cursor:pointer;
+      transition:transform .15s ease, opacity .15s ease;
+      text-decoration:none;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+    }
+    .btn:hover{transform:translateY(-1px);opacity:.98}
+    .btn-primary{background:linear-gradient(135deg, #c8f4ff, #c8f7e0);color:#083344}
+    .btn-secondary{background:rgba(255,255,255,.92);color:var(--text);border:1px solid rgba(148,163,184,.20)}
+    body[data-theme="dark"] .btn-primary{background:linear-gradient(135deg, #06b6d4, #10b981);color:#06111b}
+    body[data-theme="dark"] .btn-secondary{background:rgba(15,23,42,.94);color:var(--text);border:1px solid rgba(148,163,184,.20)}
+    .btn-danger{background:rgba(127,29,29,.88);color:#fee2e2}
+    .btn-group{display:flex;gap:10px;flex-wrap:wrap}
+    .grid-2,.grid-3{display:grid;gap:14px}
+    .grid-2{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .grid-3{grid-template-columns:repeat(3,minmax(0,1fr))}
+    label{display:block;margin-bottom:8px}
+    input,select{
+      width:100%;
+      font:inherit;
+      color:var(--text);
+      background:rgba(255,255,255,.92);
+      border:1px solid rgba(148,163,184,.24);
+      border-radius:12px;
+      padding:11px 13px;
+      outline:none;
+    }
+    body[data-theme="dark"] input,
+    body[data-theme="dark"] select{background:rgba(2,6,23,.82)}
+    input:focus,select:focus{border-color:rgba(103,232,249,.65);box-shadow:0 0 0 2px rgba(34,211,238,.10)}
+    .hidden{display:none !important}
+    .subject-list{display:grid;gap:10px;margin-top:12px}
+    .subject-row{
+      display:grid;
+      grid-template-columns:minmax(0,2fr) 92px 120px auto;
+      gap:10px;
+      align-items:center;
+      background:var(--panel-2);
+      border:1px solid rgba(148,163,184,.15);
+      border-radius:14px;
+      padding:10px;
+    }
+    .action-row{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+    .results{display:grid;gap:14px;margin-top:14px}
+    .table-shell{
+      margin-top:14px;
+      border:1px solid var(--line);
+      border-radius:18px;
+      overflow:hidden;
+      background:var(--panel);
+      box-shadow:var(--shadow);
+    }
+    .results-table{
+      width:100%;
+      border-collapse:collapse;
+      min-width:980px;
+    }
+    .results-table thead th{
+      text-align:left;
+      font-size:.78rem;
+      text-transform:uppercase;
+      letter-spacing:.06em;
+      padding:14px 12px;
+      color:var(--muted);
+      background:rgba(148,163,184,.08);
+      border-bottom:1px solid var(--line);
+    }
+    .results-table tbody td{
+      vertical-align:top;
+      padding:14px 12px;
+      border-bottom:1px solid rgba(148,163,184,.10);
+    }
+    .results-table tbody tr:hover{background:rgba(103,232,249,.03)}
+    .table-course-title{font-weight:800;line-height:1.25}
+    .table-meta{margin-top:6px;font-size:.88rem;color:var(--muted)}
+    .table-action{white-space:nowrap}
+    .table-badges{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+    .table-badge{
+      display:inline-flex;
+      align-items:center;
+      padding:4px 8px;
+      border-radius:999px;
+      font-size:.78rem;
+      background:rgba(103,232,249,.10);
+      border:1px solid rgba(103,232,249,.18);
+    }
+    .pagination-bar{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:12px;
+      flex-wrap:wrap;
+      padding:14px 16px;
+      border-top:1px solid var(--line);
+      background:rgba(148,163,184,.05);
+    }
+    .pagination-meta{color:var(--muted);font-size:.92rem}
+    .pagination-controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    .btn[disabled]{opacity:.45;cursor:not-allowed;transform:none}
+    body[data-theme="light"] .pagination-bar{background:rgba(241,245,249,.96)}
+    .table-toolbar{
+      display:grid;
+      gap:10px;
+      grid-template-columns:1.4fr .8fr .8fr .8fr 1fr;
+      padding:14px 16px;
+      border-bottom:1px solid var(--line);
+      background:rgba(148,163,184,.04);
+    }
+    .table-toolbar .field{margin:0}
+    .table-toolbar label{margin-bottom:6px;font-size:.82rem}
+    .table-toolbar input,.table-toolbar select{padding:10px 12px;border-radius:11px}
+    body[data-theme="light"] .table-toolbar{background:rgba(241,245,249,.88)}
+    @media (max-width: 860px){
+      .table-toolbar{grid-template-columns:1fr}
+    }
+    .result-card{
+      background:linear-gradient(180deg, rgba(255,255,255,.96), rgba(243,247,251,.96));
+      border-radius:18px;
+      padding:16px;
+      border:1px solid rgba(148,163,184,.14);
+    }
+    body[data-theme="dark"] .result-card{background:linear-gradient(180deg, rgba(15,23,42,.92), rgba(2,6,23,.96))}
+    .review-card{border-color:rgba(251,191,36,.28);box-shadow:0 16px 32px rgba(251,191,36,.08)}
+    .result-head{display:flex;justify-content:space-between;align-items:center;gap:12px}
+    .rank{
+      min-width:42px;height:42px;display:grid;place-items:center;
+      border-radius:12px;background:rgba(52,211,153,.10);color:var(--accent-2);font-weight:800
+    }
+    .confidence{
+      padding:6px 10px;border-radius:999px;font-weight:700;
+      background:rgba(103,232,249,.10);border:1px solid rgba(103,232,249,.18)
+    }
+    .confidence-high{
+      background:rgba(34,197,94,.14);
+      border-color:rgba(34,197,94,.28);
+      color:#15803d;
+    }
+    .confidence-medium{
+      background:rgba(250,204,21,.16);
+      border-color:rgba(234,179,8,.28);
+      color:#a16207;
+    }
+    .confidence-low,.confidence-very-low{
+      background:rgba(248,113,113,.14);
+      border-color:rgba(239,68,68,.26);
+      color:#b91c1c;
+    }
+    .meta-grid{
+      display:grid;gap:8px;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));
+      margin-top:12px;font-size:.92rem
+    }
+    .footer-note{margin-top:12px;color:var(--muted);font-size:.92rem}
+    .chip-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+    .chip{
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      padding:6px 10px;
+      border-radius:999px;
+      background:rgba(103,232,249,.10);
+      border:1px solid rgba(103,232,249,.18);
+      color:var(--text);
+      font-size:.85rem;
+    }
+    .chip.warn{background:rgba(251,191,36,.10);border-color:rgba(251,191,36,.22)}
+    .chip.soft{background:rgba(148,163,184,.10);border-color:rgba(148,163,184,.16)}
+    .warning,.error,.success{
+      margin-top:12px;padding:10px 12px;border-radius:12px
+    }
+    .warning{border-left:3px solid var(--warn);background:rgba(251,191,36,.08)}
+    .error{border-left:3px solid var(--danger);background:rgba(251,113,133,.08)}
+    .success{border-left:3px solid var(--accent-2);background:rgba(52,211,153,.08)}
+    body[data-theme="light"] .btn-secondary{background:#ffffff;color:#0f172a;border-color:rgba(100,116,139,.28)}
+    body[data-theme="light"] .btn-primary{color:#05202d}
+    body[data-theme="light"] .hero{background:linear-gradient(135deg, rgba(255,255,255,.98), rgba(224,242,254,.92));}
+    body[data-theme="light"] .card,
+    body[data-theme="light"] .result-card,
+    body[data-theme="light"] .subject-row{
+      background:#ffffff;
+      color:#0f172a;
+      border-color:rgba(100,116,139,.18);
+    }
+    body[data-theme="light"] .result-card{box-shadow:0 16px 32px rgba(15,23,42,.08)}
+    body[data-theme="light"] .table-shell{
+      background:#ffffff;
+      border-color:rgba(100,116,139,.18);
+    }
+    body[data-theme="light"] .results-table thead th{
+      background:rgba(241,245,249,.96);
+      color:#334155;
+    }
+    body[data-theme="light"] .results-table tbody tr:hover{background:rgba(14,165,233,.03)}
+    body[data-theme="light"] .table-badge{
+      background:rgba(14,165,233,.08);
+      border-color:rgba(14,165,233,.14);
+      color:#0f172a;
+    }
+    body[data-theme="light"] .confidence{
+      background:rgba(14,165,233,.10);
+      border-color:rgba(14,165,233,.16);
+      color:#0f172a;
+    }
+    body[data-theme="light"] .confidence-high{
+      background:rgba(34,197,94,.12);
+      border-color:rgba(34,197,94,.22);
+      color:#166534;
+    }
+    body[data-theme="light"] .confidence-medium{
+      background:rgba(250,204,21,.16);
+      border-color:rgba(234,179,8,.24);
+      color:#92400e;
+    }
+    body[data-theme="light"] .confidence-low,
+    body[data-theme="light"] .confidence-very-low{
+      background:rgba(248,113,113,.12);
+      border-color:rgba(239,68,68,.24);
+      color:#991b1b;
+    }
+    body[data-theme="light"] .warning{
+      background:rgba(245,158,11,.10);
+      border-left-color:#d97706;
+    }
+    body[data-theme="light"] .error{
+      background:rgba(248,113,113,.10);
+      border-left-color:#dc2626;
+    }
+    body[data-theme="light"] .success{
+      background:rgba(16,185,129,.10);
+      border-left-color:#10b981;
+    }
+    body[data-theme="light"] .hero p,
+    body[data-theme="light"] .footer-note,
+    body[data-theme="light"] .muted,
+    body[data-theme="light"] .small,
+    body[data-theme="light"] .pill,
+    body[data-theme="light"] .chip{color:#0f172a}
+    body[data-theme="light"] .pill{background:rgba(255,255,255,.98);border-color:rgba(100,116,139,.18)}
+    body[data-theme="dark"] .pill{background:rgba(15,23,42,.60);border-color:rgba(110,231,249,.16);color:#c7f9ff}
+    body[data-theme="light"] input,
+    body[data-theme="light"] select{
+      background:#ffffff;
+      color:#0f172a;
+      border-color:rgba(100,116,139,.24);
+    }
+    body[data-theme="light"] details.readmore summary{color:#0369a1}
+    details.readmore{margin-top:10px}
+    details.readmore summary{cursor:pointer;font-weight:700;color:#c7f9ff}
+    .icon{margin-right:8px}
+    .combo-grid{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));margin-top:14px}
+    .combo-card{
+      border:1px solid rgba(100,116,139,.16);
+      background:rgba(255,255,255,.88);
+      border-radius:16px;
+      padding:14px;
+      box-shadow:0 8px 18px rgba(15,23,42,.06);
+    }
+    body[data-theme="dark"] .combo-card{background:rgba(15,23,42,.82);border-color:rgba(148,163,184,.16);color:var(--text)}
+    .combo-title{display:flex;align-items:center;justify-content:space-between;gap:10px;font-weight:800}
+    .combo-code{padding:5px 9px;border-radius:999px;background:rgba(14,165,233,.10);color:var(--accent);font-size:.8rem;font-weight:800}
+    .combo-soft{color:var(--muted);font-size:.9rem;line-height:1.5;margin-top:6px}
+    .theme-toggle{position:absolute;top:18px;right:18px}
+    @media (max-width: 980px){
+      .grid-2,.grid-3{grid-template-columns:1fr}
+      .subject-row{grid-template-columns:1fr 1fr}
+      .theme-toggle{position:static;margin-top:14px}
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="hero">
+      <button type="button" class="btn btn-secondary theme-toggle" id="themeToggle"><i class="fa-solid fa-circle-half-stroke icon"></i><span id="themeLabel">Light mode</span></button>
+      <h1><i class="fa-solid fa-compass icon"></i>Mwongozo Smart</h1>
+      <p>Chagua level, jaza matokeo yako, kisha bonyeza <strong>Pata Recommendations</strong>. Mfumo utaonyesha programme zinazokaribia eligibility yako, pamoja na sababu za kuchaguliwa, borderline options, na njia mbadala zinazofanana.</p>
+      <div class="pill-row">
+        <span class="pill">Step 1: select level</span>
+        <span class="pill">Step 2: enter results</span>
+        <span class="pill">Rules first</span>
+        <span class="pill">Read more enabled</span>
+      </div>
+    </section>
+
+    <section id="inputView" class="page-view">
+      <div class="card">
+        <div class="section-title">
+          <h2>Chagua level ya mtumiaji</h2>
+          <span class="muted small">Form 4 au Form 6</span>
+        </div>
+        <div class="btn-group">
+          <button type="button" class="btn btn-primary" data-pathway-button="o_level"><i class="fa-solid fa-graduation-cap icon"></i>Form 4 / O-Level</button>
+          <button type="button" class="btn btn-primary" data-pathway-button="a_level"><i class="fa-solid fa-book-open icon"></i>Form 6 / A-Level</button>
+        </div>
+        <p class="footer-note">Chagua level kwanza. Kisha form husika itaonekana tu.</p>
+
+        <form id="recommendForm">
+          <input type="hidden" id="pathway" name="pathway" value="" />
+          <div id="levelPrompt" class="success">Bonyeza <strong>Form 4</strong> au <strong>Form 6</strong> ili uanze.</div>
+
+          <div id="aLevelSection" class="hidden">
+            <div class="section-title" style="margin-top:16px;">
+              <h3>Form 6 / A-Level</h3>
+              <span class="muted small">Core 9 subjects plus Commerce, Book Keeping, Nutrition, na Computer Studies</span>
+            </div>
+            <div class="grid-3">
+              <input type="hidden" id="a_level_scheme" name="a_level_scheme" value="2016_plus" />
+              <div class="field">
+                <label for="combination">Combination</label>
+                <select id="combination" name="combination">
+                  <option value="">Select combination</option>
+                  __COMBO_OPTIONS__
+                </select>
+              </div>
+              <input type="hidden" id="language" name="language" value="english" />
+            </div>
+            <div class="field" style="margin-top:14px;">
+              <label>Principal subjects</label>
+              <div id="aLevelSubjects" class="subject-list"></div>
+              <div class="action-row">
+                <button type="button" class="btn btn-secondary" data-add-subject="a">+ Add A-Level subject</button>
+              </div>
+            </div>
+          </div>
+
+          <div id="oLevelSection" class="hidden">
+            <div class="section-title" style="margin-top:16px;">
+              <h3>Form 4 / O-Level</h3>
+              <span class="muted small">NECTA CSEE subjects, grades, and result model</span>
+            </div>
+            <div class="grid-3">
+              <div class="field">
+                <label for="division">Calculated division</label>
+                <select id="division" name="division">
+                  <option value="">Select division</option>
+                  <option value="I">Division I</option>
+                  <option value="II">Division II</option>
+                  <option value="III">Division III</option>
+                  <option value="IV">Division IV</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="result_model">Result model</label>
+                <select id="result_model" name="result_model">
+                  <option value="standard">NECTA standard</option>
+                  <option value="borderline">Borderline / review</option>
+                </select>
+              </div>
+              <input type="hidden" id="o_language" name="o_language" value="english" />
+            </div>
+            <div class="field" style="margin-top:14px;">
+              <label>NECTA O-Level subjects</label>
+              <div id="oLevelSubjects" class="subject-list"></div>
+              <div class="action-row">
+                <button type="button" class="btn btn-secondary" data-add-subject="o">+ Add O-Level subject</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="action-row" style="margin-top:18px;">
+            <button type="submit" class="btn btn-primary"><i class="fa-solid fa-magnifying-glass icon"></i>Pata Recommendations</button>
+            <button type="button" class="btn btn-secondary" id="loadExample"><i class="fa-solid fa-wand-magic-sparkles icon"></i>Load example</button>
+            <button type="button" class="btn btn-secondary" id="clearForm"><i class="fa-solid fa-eraser icon"></i>Clear</button>
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <section id="resultsView" class="page-view hidden" style="margin-top:18px;">
+      <div class="card">
+        <div class="section-title">
+          <h2>Matokeo</h2>
+          <div class="btn-group">
+            <span class="muted small">Full recommendations page</span>
+            <button type="button" class="btn btn-secondary" id="backToInput"><i class="fa-solid fa-arrow-left icon"></i>Back to inputs</button>
+          </div>
+        </div>
+        <div id="resultSummary" class="muted">Chagua level, jaza matokeo, kisha bonyeza <strong>Pata Recommendations</strong>.</div>
+        <div id="results" class="results"></div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const subjectCatalog = __ASUBJECTS_JSON__;
+    const gradeOptions = __GRADES_JSON__;
+    const samplePayload = __SAMPLE_JSON__;
+    const oLevelSubjectsCatalog = __OSUBJECTS_JSON__;
+    const defaultOLevelSubjects = __ODEFAULTS_JSON__;
+
+    const aLevelContainer = document.getElementById("aLevelSubjects");
+    const oLevelContainer = document.getElementById("oLevelSubjects");
+    const resultsEl = document.getElementById("results");
+    const resultSummaryEl = document.getElementById("resultSummary");
+    const inputView = document.getElementById("inputView");
+    const resultsView = document.getElementById("resultsView");
+    const pathwayInput = document.getElementById("pathway");
+    const levelPrompt = document.getElementById("levelPrompt");
+    const aLevelSection = document.getElementById("aLevelSection");
+    const oLevelSection = document.getElementById("oLevelSection");
+    const pathwayButtons = document.querySelectorAll("[data-pathway-button]");
+    const combinationInput = document.getElementById("combination");
+    const themeToggle = document.getElementById("themeToggle");
+    const themeLabel = document.getElementById("themeLabel");
+
+    function setTheme(theme) {
+      const nextTheme = theme === "light" ? "light" : "dark";
+      document.body.dataset.theme = nextTheme;
+      localStorage.setItem("mwongozo-theme", nextTheme);
+      themeLabel.textContent = nextTheme === "light" ? "Dark mode" : "Light mode";
+    }
+
+    function showInputView() {
+      inputView.classList.remove("hidden");
+      resultsView.classList.add("hidden");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    function showResultsView() {
+      inputView.classList.add("hidden");
+      resultsView.classList.remove("hidden");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    function subjectRow(preset = {}, level = "a") {
+      const catalog = level === "o" ? oLevelSubjectsCatalog : subjectCatalog;
+      const gradeHtml = gradeOptions.map(g => `<option value="${g}" ${preset.grade === g ? "selected" : ""}>${g === "" ? "--" : g}</option>`).join("");
+      const wrapper = document.createElement("div");
+      wrapper.className = "subject-row";
+      wrapper.innerHTML = `
+        <select class="subject-name">${catalog.map(s => `<option value="${s}" ${preset.subject === s ? "selected" : ""}>${s}</option>`).join("")}</select>
+        <select class="subject-grade">${gradeHtml}</select>
+        <select class="subject-model">
+          <option value="core" ${preset.model !== "elective" ? "selected" : ""}>Core</option>
+          <option value="elective" ${preset.model === "elective" ? "selected" : ""}>Elective</option>
+        </select>
+        <button type="button" class="btn btn-danger remove-btn">Remove</button>
+      `;
+      wrapper.querySelector(".remove-btn").addEventListener("click", () => wrapper.remove());
+      return wrapper;
+    }
+
+    const combinationMap = {
+      PCB: ["Physics", "Chemistry", "Biology"],
+      PCM: ["Physics", "Chemistry", "Advanced Mathematics"],
+      PGM: ["Physics", "Geography", "Advanced Mathematics"],
+      CBG: ["Chemistry", "Biology", "Geography"],
+      CBN: ["Commerce", "Book Keeping", "Nutrition"],
+      HGL: ["History", "Geography", "English Language"],
+      HKL: ["History", "Kiswahili", "English Language"],
+      HGK: ["History", "Geography", "Kiswahili"],
+    };
+
+    function setAlevelByCombination(code) {
+      const selected = combinationMap[code] || [];
+      aLevelContainer.innerHTML = "";
+      (selected.length ? selected : ["Physics", "Chemistry", "Biology"]).forEach((subject, index) => {
+        aLevelContainer.appendChild(subjectRow({ subject, grade: index === 0 ? "A" : "B", model: "core" }, "a"));
+      });
+    }
+
+    function ensureDefaultRows() {
+      if (!aLevelContainer.children.length) {
+        setAlevelByCombination(combinationInput.value || "PCB");
+      }
+      if (!oLevelContainer.children.length) {
+        defaultOLevelSubjects.forEach(subject => oLevelContainer.appendChild(subjectRow({ subject, grade: "", model: "core" }, "o")));
+      }
+    }
+
+    function setPathway(pathway) {
+      pathwayInput.value = pathway;
+      levelPrompt.classList.add("hidden");
+      aLevelSection.classList.add("hidden");
+      oLevelSection.classList.add("hidden");
+      pathwayButtons.forEach(btn => btn.classList.remove("active"));
+      const active = [...pathwayButtons].find(btn => btn.dataset.pathwayButton === pathway);
+      if (active) active.classList.add("active");
+      if (pathway === "a_level") aLevelSection.classList.remove("hidden");
+      if (pathway === "o_level") {
+        oLevelSection.classList.remove("hidden");
+        if (!oLevelContainer.children.length) ensureDefaultRows();
+      }
+    }
+
+    function populateFromPayload(payload) {
+      setPathway(payload.pathway || "a_level");
+      document.getElementById("a_level_scheme").value = payload.a_level_scheme || "2016_plus";
+      document.getElementById("combination").value = payload.combination || "";
+      document.getElementById("language").value = payload.language || "both";
+      document.getElementById("o_language").value = payload.language || "both";
+      document.getElementById("division").value = "";
+      document.getElementById("result_model").value = "standard";
+      aLevelContainer.innerHTML = "";
+      oLevelContainer.innerHTML = "";
+      (payload.a_level_subjects || []).forEach(item => aLevelContainer.appendChild(subjectRow(item, "a")));
+      (payload.o_level_subjects || []).forEach(item => oLevelContainer.appendChild(subjectRow(item, "o")));
+      ensureDefaultRows();
+      if (payload.combination) setAlevelByCombination(payload.combination);
+    }
+
+    function buildPayload() {
+      const pathway = pathwayInput.value || "a_level";
+      const readSubjects = (container, level) => Array.from(container.querySelectorAll(".subject-row")).map(row => ({
+        subject: row.querySelector(".subject-name").value,
+        grade: row.querySelector(".subject-grade").value,
+        principal: true,
+        level,
+      }));
+      return {
+        pathway,
+        a_level_scheme: document.getElementById("a_level_scheme").value,
+        a_level_subjects: pathway === "a_level" ? readSubjects(aLevelContainer, "a_level") : [],
+        o_level_subjects: pathway === "o_level" ? readSubjects(oLevelContainer, "o_level") : [],
+        combination: document.getElementById("combination").value || null,
+        preferred_regions: [],
+        preferred_institutions: [],
+        language: pathway === "a_level" ? document.getElementById("language").value : document.getElementById("o_language").value,
+        equivalent_qualification: null,
+        notes: pathway === "o_level"
+          ? [`Division: ${document.getElementById("division").value || ""}`, `Result model: ${document.getElementById("result_model").value || ""}`]
+          : [],
+      };
+    }
+
+    function renderCard(rec, isReview = false) {
+      const warnings = (rec.assessment?.warnings || []).map(w => `<div class="warning">${w}</div>`).join("");
+      const issues = (rec.assessment?.missing_rules || []).length ? `<div class="error">${rec.assessment.missing_rules.join("<br>")}</div>` : "";
+      const matched = (rec.assessment?.matched_rules || []).slice(0, 5).join(", ") || "No matched rules listed";
+      const explanation = [...(rec.assessment?.why_recommended || []), ...(rec.assessment?.why_borderline || []), ...(rec.assessment?.why_not_matched || [])];
+      const parallel = (rec.assessment?.parallel_courses || []).map(item => `<li>${item}</li>`).join("");
+      const ruleTraces = (rec.assessment?.rule_traces || []).map(trace => `<li>${trace.passed ? "Passed" : "Failed"}: ${trace.label} (${trace.points} pts)${trace.details ? ` - ${trace.details}` : ""}</li>`).join("");
+      const applyUrl = rec.institution_apply_url || rec.institution_website || "";
+      const tags = (rec.programme?.tags || []).slice(0, 4);
+      const awardLevel = rec.programme?.award_level || "bachelor";
+      return `
+        <article class="result-card ${isReview ? "review-card" : ""}">
+          <div class="result-head">
+            <div style="display:flex;gap:12px;align-items:center;">
+              <div class="rank">${rec.rank}</div>
+              <div>
+                <div class="small muted">${rec.programme.code}</div>
+                <h3 style="margin:0;">${rec.programme.name}</h3>
+                <div class="small muted">${rec.programme.institution_name} · ${rec.programme.region}</div>
+                ${isReview ? `<div class="small muted">Borderline / parallel option</div>` : ""}
+                <div class="chip-row">
+                  <span class="chip">📍 ${rec.programme.region}</span>
+                  <span class="chip soft">🏷 ${rec.programme.category}</span>
+                  ${tags.map(tag => `<span class="chip warn">${tag}</span>`).join("")}
+                </div>
+              </div>
+            </div>
+            <div class="confidence">${rec.assessment.confidence}% · ${rec.assessment.confidence_band}</div>
+          </div>
+          <div class="meta-grid">
+            <div><strong>User points:</strong> ${rec.student_points}</div>
+            <div><strong>Min points:</strong> ${rec.minimum_required_points}</div>
+            <div><strong>Duration:</strong> ${rec.programme.duration_years ?? "-"} years</div>
+            <div><strong>Section:</strong> ${rec.assessment.section}</div>
+            <div><strong>Tier:</strong> ${rec.programme.competition_tier}</div>
+            <div><strong>Rule points:</strong> ${rec.assessment.rule_points ?? 0}</div>
+          </div>
+          <div class="footer-note"><strong>Matched rules:</strong> ${matched}</div>
+          <div class="footer-note"><strong>Course description:</strong> ${rec.programme.source_reference || "Programme details and entry rules from catalog."}</div>
+          <div class="footer-note"><strong>Award level:</strong> ${awardLevel}</div>
+          ${warnings}
+          ${issues}
+          ${applyUrl ? `<div class="action-row"><a class="btn btn-primary" href="${applyUrl}" target="_blank" rel="noopener noreferrer">${rec.cta_label || "Apply Now"}</a></div>` : ""}
+          <details class="readmore">
+            <summary>Read more: Show why this programme was recommended</summary>
+            <div class="footer-note">
+              <ul>${explanation.map(item => `<li>${item}</li>`).join("") || "<li>No explanation available yet.</li>"}</ul>
+              <p><strong>Parallel courses:</strong></p>
+              <ul>${parallel || "<li>No similar course found yet.</li>"}</ul>
+              <p><strong>Rule trace:</strong></p>
+              <ul>${ruleTraces || "<li>No rule trace available.</li>"}</ul>
+            </div>
+          </details>
+        </article>
+      `;
+    }
+
+    function renderRecommendations(data) {
+      const recommendations = data.recommendations || [];
+      const reviewCandidates = data.review_candidates || [];
+      const combinationSuggestions = data.combination_suggestions || [];
+      showResultsView();
+      const combinationPanel = combinationSuggestions.length ? `
+        <div class="combo-grid">
+          ${combinationSuggestions.map((item) => `
+            <div class="combo-card">
+              <div class="combo-title">
+                <span>${item.code}</span>
+                <span class="combo-code">${Math.round((item.confidence || 0) * 100)}%</span>
+              </div>
+              <div class="combo-soft">${(item.subjects || []).join(" + ")}</div>
+              <div class="combo-soft"><strong>Likely sections:</strong> ${(item.likely_sections || []).join(", ") || "General"}</div>
+              <div class="combo-soft">${(item.rationale || []).join(" ")}</div>
+            </div>
+          `).join("")}
+        </div>
+      ` : "";
+      if (!recommendations.length) {
+        resultSummaryEl.innerHTML = `<div class="error">Hakuna programme iliyo eligible kwa input hii.</div>${combinationPanel}`;
+        resultsEl.innerHTML = reviewCandidates.length
+          ? reviewCandidates.map((rec) => renderCard(rec, true)).join("")
+          : `<div class="footer-note">Hii inaonyesha current inputs bado hazijafikia direct match. Jaribu combination nyingine au angalia strict requirements.</div>`;
+        return;
+      }
+      resultSummaryEl.innerHTML = `<div class="success">${recommendations.length} programme(s) zimepata direct eligibility.</div>${combinationPanel}${reviewCandidates.length ? `<div class="warning" style="margin-top:10px;">${reviewCandidates.length} borderline/parallel options ziko chini kwa review.</div>` : ""}`;
+      resultsEl.innerHTML = [...recommendations.map((rec) => renderCard(rec, false)), ...reviewCandidates.map((rec) => renderCard(rec, true))].join("");
+    }
+
+    document.getElementById("recommendForm").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      resultSummaryEl.innerHTML = `<div class="muted">Ina-load recommendations...</div>`;
+      resultsEl.innerHTML = "";
+      showResultsView();
+      try {
+        const response = await fetch("/recommend", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(buildPayload()),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || "Request failed");
+        renderRecommendations(data);
+      } catch (error) {
+        resultSummaryEl.innerHTML = `<div class="error">${error.message}</div>`;
+      }
+    });
+
+    pathwayButtons.forEach(button => button.addEventListener("click", () => setPathway(button.dataset.pathwayButton)));
+    document.querySelector('[data-add-subject="a"]').addEventListener("click", () => aLevelContainer.appendChild(subjectRow({}, "a")));
+    document.querySelector('[data-add-subject="o"]').addEventListener("click", () => oLevelContainer.appendChild(subjectRow({}, "o")));
+    document.getElementById("combination").addEventListener("change", () => {
+      if (pathwayInput.value === "a_level" && combinationInput.value) setAlevelByCombination(combinationInput.value);
+    });
+    document.getElementById("loadExample").addEventListener("click", () => populateFromPayload(samplePayload));
+    document.getElementById("clearForm").addEventListener("click", () => {
+      aLevelContainer.innerHTML = "";
+      oLevelContainer.innerHTML = "";
+      document.getElementById("a_level_scheme").value = "2016_plus";
+      document.getElementById("combination").value = "";
+      document.getElementById("language").value = "english";
+      document.getElementById("o_language").value = "english";
+      document.getElementById("division").value = "";
+      document.getElementById("result_model").value = "standard";
+      pathwayInput.value = "";
+      levelPrompt.classList.remove("hidden");
+      aLevelSection.classList.add("hidden");
+      oLevelSection.classList.add("hidden");
+      resultSummaryEl.innerHTML = '<div class="muted">Form imeclear. Chagua level kisha ujaze matokeo.</div>';
+      resultsEl.innerHTML = "";
+      showInputView();
+    });
+    themeToggle.addEventListener("click", () => setTheme(document.body.dataset.theme === "light" ? "dark" : "light"));
+    const backButton = document.getElementById("backToInput");
+    if (backButton) {
+      backButton.addEventListener("click", showInputView);
+    }
+    document.getElementById("recommendForm").reset();
+    aLevelContainer.innerHTML = "";
+    oLevelContainer.innerHTML = "";
+    levelPrompt.classList.remove("hidden");
+    setTheme(localStorage.getItem("mwongozo-theme") || "dark");
+    showInputView();
+  </script>
+  <script>
+    // Override the earlier renderer with the cleaner card layout used by the new results page.
+    function renderCard(rec, isReview = false) {
+      const warnings = (rec.assessment?.warnings || []).map((w) => `<div class="warning">${w}</div>`).join("");
+      const issues = (rec.assessment?.missing_rules || []).length ? `<div class="error">${rec.assessment.missing_rules.join("<br>")}</div>` : "";
+      const matched = (rec.assessment?.matched_rules || []).slice(0, 5).join(", ") || "No matched rules listed";
+      const explanation = [...(rec.assessment?.why_recommended || []), ...(rec.assessment?.why_borderline || []), ...(rec.assessment?.why_not_matched || [])];
+      const parallel = (rec.assessment?.parallel_courses || []).map((item) => `<li>${item}</li>`).join("");
+      const ruleTraces = (rec.assessment?.rule_traces || []).map((trace) => `<li>${trace.passed ? "Passed" : "Failed"}: ${trace.label} (${trace.points} pts)${trace.details ? ` - ${trace.details}` : ""}</li>`).join("");
+      const applyUrl = rec.institution_apply_url || rec.institution_website || "";
+      const tags = (rec.programme?.tags || []).slice(0, 4);
+      const courseDescription = tags.length ? tags.map((tag) => tag.replace(/_/g, " ")).join(", ") : "Programme details and entry rules from catalog.";
+
+      return `
+        <article class="result-card ${isReview ? "review-card" : ""}">
+          <div class="result-head">
+            <div style="display:flex;gap:12px;align-items:center;">
+              <div class="rank">${rec.rank}</div>
+              <div>
+                <div class="small muted">${rec.programme.code}</div>
+                <h3 style="margin:0;">${rec.programme.name}</h3>
+                <div class="small muted">${rec.programme.institution_name} &middot; ${rec.programme.region}</div>
+                ${isReview ? `<div class="small muted">Borderline / parallel option</div>` : ""}
+                <div class="chip-row">
+                  <span class="chip">📍 ${rec.programme.region}</span>
+                  <span class="chip soft">🏷 ${rec.programme.category}</span>
+                  ${tags.map((tag) => `<span class="chip warn">${tag}</span>`).join("")}
+                </div>
+              </div>
+            </div>
+            <div class="confidence">${rec.assessment.confidence}% &middot; ${rec.assessment.confidence_band}</div>
+          </div>
+          <div class="meta-grid">
+            <div><strong>User points:</strong> ${rec.student_points}</div>
+            <div><strong>Min points:</strong> ${rec.minimum_required_points}</div>
+            <div><strong>Duration:</strong> ${rec.programme.duration_years ?? "-"} years</div>
+            <div><strong>Section:</strong> ${rec.assessment.section}</div>
+            <div><strong>Tier:</strong> ${rec.programme.competition_tier}</div>
+            <div><strong>Rule points:</strong> ${rec.assessment.rule_points ?? 0}</div>
+          </div>
+          <div class="footer-note"><strong>Matched rules:</strong> ${matched}</div>
+          <div class="footer-note"><strong>Course description:</strong> ${courseDescription}</div>
+          ${warnings}
+          ${issues}
+          ${applyUrl ? `<div class="action-row"><a class="btn btn-primary" href="${applyUrl}" target="_blank" rel="noopener noreferrer">${rec.cta_label || "Apply Now"}</a></div>` : ""}
+          <details class="readmore">
+            <summary>Read more: Show why this programme was recommended</summary>
+            <div class="footer-note">
+              <ul>${explanation.map((item) => `<li>${item}</li>`).join("") || "<li>No explanation available yet.</li>"}</ul>
+              <p><strong>Parallel courses:</strong></p>
+              <ul>${parallel || "<li>No similar course found yet.</li>"}</ul>
+              <p><strong>Rule trace:</strong></p>
+              <ul>${ruleTraces || "<li>No rule trace available.</li>"}</ul>
+            </div>
+          </details>
+        </article>
+      `;
+    }
+  </script>
+  <script>
+    function renderResultRow(rec, isReview = false) {
+      const applyUrl = rec.institution_apply_url || rec.institution_website || "";
+      const tags = (rec.programme?.tags || []).slice(0, 3);
+      const description = tags.length
+        ? `${rec.programme.category} programme in ${tags.map((tag) => tag.replace(/_/g, " ")).join(", ")}`
+        : `${rec.programme.category} programme at ${rec.programme.institution_name}`;
+      const explanation = [...(rec.assessment?.why_recommended || []), ...(rec.assessment?.why_borderline || []), ...(rec.assessment?.why_not_matched || [])];
+      const parallel = (rec.assessment?.parallel_courses || []).slice(0, 4);
+      const ruleTraces = (rec.assessment?.rule_traces || []).slice(0, 6);
+      return `
+        <tr class="${isReview ? "review-row" : ""}">
+          <td>
+            <div class="table-course-title">${rec.programme.institution_name}</div>
+            <div class="table-meta">${rec.programme.city}, ${rec.programme.region}</div>
+            ${applyUrl ? `<div class="table-action" style="margin-top:8px;"><a class="btn btn-primary" href="${applyUrl}" target="_blank" rel="noopener noreferrer">${rec.cta_label || "Apply Now"}</a></div>` : ""}
+          </td>
+          <td>
+            <div class="table-course-title">${rec.programme.name}</div>
+            <div class="table-meta">${description}</div>
+            <div class="table-badges">
+              <span class="table-badge">📍 ${rec.programme.region}</span>
+              <span class="table-badge">🏷 ${rec.programme.category}</span>
+              ${isReview ? `<span class="table-badge">Borderline</span>` : `<span class="table-badge">Direct match</span>`}
+            </div>
+            <details class="readmore">
+              <summary>Read more</summary>
+              <div class="footer-note">
+                <div><strong>Why recommended:</strong></div>
+                <ul>${explanation.map((item) => `<li>${item}</li>`).join("") || "<li>No explanation available yet.</li>"}</ul>
+                <div><strong>Parallel courses:</strong></div>
+                <ul>${parallel.map((item) => `<li>${item}</li>`).join("") || "<li>No similar course found yet.</li>"}</ul>
+                <div><strong>Rule trace:</strong></div>
+                <ul>${
+                  ruleTraces.map((trace) => `<li>${trace.passed ? "Passed" : "Failed"}: ${trace.label} (${trace.points} pts)${trace.details ? ` - ${trace.details}` : ""}</li>`).join("") ||
+                  "<li>No rule trace available.</li>"
+                }</ul>
+              </div>
+            </details>
+          </td>
+          <td><strong>${rec.assessment.confidence}%</strong><div class="table-meta">${rec.assessment.confidence_band}</div></td>
+          <td>${rec.programme.region}</td>
+          <td>${rec.programme.category}</td>
+          <td>
+            <div class="table-meta"><strong>Points:</strong> ${rec.student_points}/${rec.minimum_required_points}</div>
+            <div class="table-meta"><strong>Rule pts:</strong> ${rec.assessment.rule_points ?? 0}</div>
+          </td>
+        </tr>
+      `;
+    }
+
+    function renderResultsTable(title, items, isReview = false) {
+      if (!items.length) return "";
+      return `
+        <div class="table-shell">
+          <div style="padding:14px 16px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:12px;align-items:center;">
+            <strong>${title}</strong>
+            <span class="muted small">${items.length} row(s)</span>
+          </div>
+          <div style="overflow-x:auto;">
+            <table class="results-table">
+              <thead>
+                <tr>
+                  <th>Chuo</th>
+                  <th>Course</th>
+                  <th>Confidence</th>
+                  <th>Mkoa</th>
+                  <th>Category</th>
+                  <th>Points</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${items.map((rec) => renderResultRow(rec, isReview)).join("")}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderRecommendations(data) {
+      const recommendations = data.recommendations || [];
+      const reviewCandidates = data.review_candidates || [];
+      showResultsView();
+      if (!recommendations.length && !reviewCandidates.length) {
+        resultSummaryEl.innerHTML = `<div class="error">Hakuna programme iliyo eligible kwa input hii.</div>`;
+        resultsEl.innerHTML = `<div class="footer-note">Hii inaonyesha current inputs bado hazijafikia direct match. Jaribu combination nyingine au angalia strict requirements.</div>`;
+        return;
+      }
+      resultSummaryEl.innerHTML = `
+        <div class="success">${recommendations.length} direct match(s) zimepatikana.</div>
+        ${reviewCandidates.length ? `<div class="warning" style="margin-top:10px;">${reviewCandidates.length} borderline/parallel options ziko chini kwa review.</div>` : ""}
+      `;
+      resultsEl.innerHTML = [
+        renderResultsTable("Direct recommendations", recommendations, false),
+        renderResultsTable("Borderline / parallel options", reviewCandidates, true),
+      ].join("");
+    }
+  </script>
+  <script>
+    // Final override: paginated, compact results table to reduce scrolling.
+    const resultsPagination = {
+      items: [],
+      page: 0,
+      pageSize: 6,
+      directCount: 0,
+      reviewCount: 0,
+    };
+
+    function renderResultRow(rec) {
+      const isReview = Boolean(rec.__isReview);
+      const applyUrl = rec.institution_apply_url || rec.institution_website || "";
+      const tags = (rec.programme?.tags || []).slice(0, 3);
+      const description = tags.length
+        ? `${rec.programme.category} programme in ${tags.map((tag) => tag.replace(/_/g, " ")).join(", ")}`
+        : `${rec.programme.category} programme at ${rec.programme.institution_name}`;
+      const explanation = [...(rec.assessment?.why_recommended || []), ...(rec.assessment?.why_borderline || []), ...(rec.assessment?.why_not_matched || [])];
+      const parallel = (rec.assessment?.parallel_courses || []).slice(0, 4);
+      const ruleTraces = (rec.assessment?.rule_traces || []).slice(0, 6);
+      return `
+        <tr class="${isReview ? "review-row" : ""}">
+          <td>
+            <div class="table-course-title">${rec.programme.institution_name}</div>
+            <div class="table-meta">${rec.programme.city}, ${rec.programme.region}</div>
+            ${applyUrl ? `<div class="table-action" style="margin-top:8px;"><a class="btn btn-primary" href="${applyUrl}" target="_blank" rel="noopener noreferrer">${rec.cta_label || "Apply Now"}</a></div>` : ""}
+          </td>
+          <td>
+            <div class="table-course-title">${rec.programme.name}</div>
+            <div class="table-meta">${description}</div>
+            <div class="table-badges">
+              <span class="table-badge">📍 ${rec.programme.region}</span>
+              <span class="table-badge">🏷 ${rec.programme.category}</span>
+              <span class="table-badge">${isReview ? "Borderline" : "Direct match"}</span>
+            </div>
+            <details class="readmore">
+              <summary>Read more</summary>
+              <div class="footer-note">
+                <div><strong>Why recommended:</strong></div>
+                <ul>${explanation.map((item) => `<li>${item}</li>`).join("") || "<li>No explanation available yet.</li>"}</ul>
+                <div><strong>Parallel courses:</strong></div>
+                <ul>${parallel.map((item) => `<li>${item}</li>`).join("") || "<li>No similar course found yet.</li>"}</ul>
+                <div><strong>Rule trace:</strong></div>
+                <ul>${
+                  ruleTraces.map((trace) => `<li>${trace.passed ? "Passed" : "Failed"}: ${trace.label} (${trace.points} pts)${trace.details ? ` - ${trace.details}` : ""}</li>`).join("") ||
+                  "<li>No rule trace available.</li>"
+                }</ul>
+              </div>
+            </details>
+          </td>
+          <td><strong>${rec.assessment.confidence}%</strong><div class="table-meta">${rec.assessment.confidence_band}</div></td>
+          <td>${rec.programme.region}</td>
+          <td>${rec.programme.category}</td>
+          <td>
+            <div class="table-meta"><strong>Points:</strong> ${rec.student_points}/${rec.minimum_required_points}</div>
+            <div class="table-meta"><strong>Rule pts:</strong> ${rec.assessment.rule_points ?? 0}</div>
+          </td>
+        </tr>
+      `;
+    }
+
+    function renderResultsPage() {
+      const totalPages = Math.max(1, Math.ceil(resultsPagination.items.length / resultsPagination.pageSize));
+      resultsPagination.page = Math.min(Math.max(resultsPagination.page, 0), totalPages - 1);
+      const start = resultsPagination.page * resultsPagination.pageSize;
+      const pageItems = resultsPagination.items.slice(start, start + resultsPagination.pageSize);
+      const table = `
+        <div class="table-shell">
+          <div style="padding:14px 16px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;">
+            <strong>Recommendations</strong>
+            <span class="muted small">Direct: ${resultsPagination.directCount} | Borderline: ${resultsPagination.reviewCount}</span>
+          </div>
+          <div style="overflow-x:auto;">
+            <table class="results-table">
+              <thead>
+                <tr>
+                  <th>Chuo</th>
+                  <th>Course</th>
+                  <th>Confidence</th>
+                  <th>Mkoa</th>
+                  <th>Category</th>
+                  <th>Points</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${pageItems.map((rec) => renderResultRow(rec)).join("")}
+              </tbody>
+            </table>
+          </div>
+          <div class="pagination-bar">
+            <div class="pagination-meta">Page ${resultsPagination.page + 1} of ${totalPages} · Showing ${pageItems.length} of ${resultsPagination.items.length}</div>
+            <div class="pagination-controls">
+              <button type="button" class="btn btn-secondary" id="prevResultsPage" ${resultsPagination.page <= 0 ? "disabled" : ""}>Prev</button>
+              <button type="button" class="btn btn-secondary" id="nextResultsPage" ${resultsPagination.page >= totalPages - 1 ? "disabled" : ""}>Next</button>
+            </div>
+          </div>
+        </div>
+      `;
+      resultsEl.innerHTML = table;
+      const prevButton = document.getElementById("prevResultsPage");
+      const nextButton = document.getElementById("nextResultsPage");
+      if (prevButton) prevButton.addEventListener("click", () => {
+        resultsPagination.page -= 1;
+        renderResultsPage();
+      });
+      if (nextButton) nextButton.addEventListener("click", () => {
+        resultsPagination.page += 1;
+        renderResultsPage();
+      });
+    }
+
+    function renderRecommendations(data) {
+      const recommendations = (data.recommendations || []).map((rec) => ({ ...rec, __isReview: false }));
+      const reviewCandidates = (data.review_candidates || []).map((rec) => ({ ...rec, __isReview: true }));
+      const allRows = [...recommendations, ...reviewCandidates];
+      resultsPagination.items = allRows;
+      resultsPagination.page = 0;
+      resultsPagination.directCount = recommendations.length;
+      resultsPagination.reviewCount = reviewCandidates.length;
+      showResultsView();
+      if (!allRows.length) {
+        resultSummaryEl.innerHTML = `<div class="error">Hakuna programme iliyo eligible kwa input hii.</div>`;
+        resultsEl.innerHTML = `<div class="footer-note">Hii inaonyesha current inputs bado hazijafikia direct match. Jaribu combination nyingine au angalia strict requirements.</div>`;
+        return;
+      }
+      resultSummaryEl.innerHTML = `
+        <div class="success">${recommendations.length} direct match(s) zimepatikana.</div>
+        ${reviewCandidates.length ? `<div class="warning" style="margin-top:10px;">${reviewCandidates.length} borderline/parallel options ziko chini kwa review.</div>` : ""}
+      `;
+      renderResultsPage();
+    }
+  </script>
+  <script>
+    if (typeof resultsPagination === "object") {
+      resultsPagination.pageSize = 5;
+      resultsPagination.filters = { query: "", region: "all", category: "all", sort: "confidence_desc" };
+    }
+
+    function confidenceBandClass(band) {
+      const value = String(band || "").trim().toLowerCase();
+      if (value === "high") return "confidence-high";
+      if (value === "medium") return "confidence-medium";
+      if (value === "low") return "confidence-low";
+      return "confidence-very-low";
+    }
+
+    window.renderResultsCompareRows = function renderResultsCompareRows(a, b) {
+      const aReview = Boolean(a.__isReview);
+      const bReview = Boolean(b.__isReview);
+      const aConfidence = Number(a.assessment?.confidence ?? 0);
+      const bConfidence = Number(b.assessment?.confidence ?? 0);
+      const aScore = Number(a.assessment?.score ?? 0);
+      const bScore = Number(b.assessment?.score ?? 0);
+      const aPoints = Number(a.assessment?.rule_points ?? 0);
+      const bPoints = Number(b.assessment?.rule_points ?? 0);
+      const confidenceDirection = String(resultsPagination.filters?.sort || "confidence_desc") === "confidence_asc" ? 1 : -1;
+      return (
+        confidenceDirection * (aConfidence - bConfidence) ||
+        (aReview - bReview) ||
+        (bScore - aScore) ||
+        (bPoints - aPoints) ||
+        (Number(a.rank ?? 0) - Number(b.rank ?? 0))
+      );
+    };
+
+    window.renderResultsApplyFilters = function renderResultsApplyFilters() {
+      const query = String(resultsPagination.filters?.query || "").trim().toLowerCase();
+      const region = String(resultsPagination.filters?.region || "all").trim().toLowerCase();
+      const category = String(resultsPagination.filters?.category || "all").trim().toLowerCase();
+      return (resultsPagination.items || []).filter((rec) => {
+        const haystack = [
+          rec.programme?.institution_name,
+          rec.programme?.name,
+          rec.programme?.city,
+          rec.programme?.region,
+          rec.programme?.category,
+          ...(rec.programme?.tags || []),
+          rec.assessment?.why_recommended?.[0],
+          rec.assessment?.why_borderline?.[0],
+        ]
+          .map((value) => String(value || "").toLowerCase())
+          .join(" ");
+        const matchesQuery = !query || haystack.includes(query);
+        const matchesRegion = region === "all" || String(rec.programme?.region || "").toLowerCase() === region;
+        const matchesCategory = category === "all" || String(rec.programme?.category || "").toLowerCase() === category;
+        return matchesQuery && matchesRegion && matchesCategory;
+      });
+    };
+
+    window.renderResultsRowCompact = function renderResultsRowCompact(rec) {
+      const isReview = Boolean(rec.__isReview);
+      const applyUrl = rec.institution_apply_url || rec.institution_website || "";
+      const applyLabel = rec.institution_apply_url ? (rec.cta_label || "Apply Now") : (rec.institution_website ? "Visit Website" : (rec.cta_label || "Apply Now"));
+      const tags = (rec.programme?.tags || []).slice(0, 3);
+      const description = tags.length
+        ? `${rec.programme.category} programme in ${tags.map((tag) => String(tag).replace(/_/g, " ")).join(", ")}`
+        : `${rec.programme.category} programme at ${rec.programme.institution_name}`;
+      const insight = rec.assessment?.why_recommended?.[0] || rec.assessment?.why_borderline?.[0] || rec.assessment?.why_not_matched?.[0] || (isReview ? "Borderline recommendation" : "Direct match");
+      const explanation = [...(rec.assessment?.why_recommended || []), ...(rec.assessment?.why_borderline || []), ...(rec.assessment?.why_not_matched || [])];
+      const parallel = (rec.assessment?.parallel_courses || []).slice(0, 4);
+      const ruleTraces = (rec.assessment?.rule_traces || []).slice(0, 6);
+      return `
+        <tr class="${isReview ? "review-row" : ""}">
+          <td>
+            <div class="table-course-title">${rec.programme.institution_name}</div>
+            <div class="table-meta">${rec.programme.city}, ${rec.programme.region}</div>
+            ${applyUrl ? `<div class="table-action" style="margin-top:8px;"><a class="btn btn-primary" href="${applyUrl}" target="_blank" rel="noopener noreferrer">${applyLabel}</a></div>` : ""}
+          </td>
+          <td>
+            <div class="table-course-title">${rec.programme.name}</div>
+            <div class="table-meta">${description}</div>
+            <div class="table-badges">
+              <span class="table-badge">${rec.programme.category}</span>
+              <span class="table-badge">${isReview ? "Borderline" : "Direct match"}</span>
+            </div>
+            <details class="readmore">
+              <summary>Read more</summary>
+              <div class="footer-note">
+                <div><strong>Why recommended:</strong></div>
+                <ul>${explanation.map((item) => `<li>${item}</li>`).join("") || "<li>No explanation available yet.</li>"}</ul>
+                <div><strong>Parallel courses:</strong></div>
+                <ul>${parallel.map((item) => `<li>${item}</li>`).join("") || "<li>No similar course found yet.</li>"}</ul>
+                <div><strong>Rule trace:</strong></div>
+                <ul>${
+                  ruleTraces.map((trace) => `<li>${trace.passed ? "Passed" : "Failed"}: ${trace.label} (${trace.points} pts)${trace.details ? ` - ${trace.details}` : ""}</li>`).join("") ||
+                  "<li>No rule trace available.</li>"
+                }</ul>
+              </div>
+            </details>
+          </td>
+          <td><strong class="confidence ${confidenceBandClass(rec.assessment?.confidence_band)}">${rec.assessment.confidence}%</strong><div class="table-meta">${rec.assessment.confidence_band}</div></td>
+          <td>${insight}</td>
+          <td>${rec.programme.category}</td>
+          <td>
+            <div class="table-meta"><strong>Points:</strong> ${rec.student_points}/${rec.minimum_required_points}</div>
+            <div class="table-meta"><strong>Rule pts:</strong> ${rec.assessment.rule_points ?? 0}</div>
+          </td>
+        </tr>
+      `;
+    };
+
+    window.renderResultsPageCompact = function renderResultsPageCompact() {
+      const filteredItems = window.renderResultsApplyFilters().sort(window.renderResultsCompareRows);
+      const pageSize = resultsPagination.pageSize || 5;
+      const totalPages = Math.max(1, Math.ceil(filteredItems.length / pageSize));
+      resultsPagination.page = Math.min(Math.max(resultsPagination.page, 0), totalPages - 1);
+      const start = resultsPagination.page * pageSize;
+      const pageItems = filteredItems.slice(start, start + pageSize);
+      const regions = [...new Set((resultsPagination.items || []).map((item) => item.programme?.region).filter(Boolean))].sort();
+      const categories = [...new Set((resultsPagination.items || []).map((item) => item.programme?.category).filter(Boolean))].sort();
+      resultsEl.innerHTML = `
+        <div class="table-shell">
+          <div style="padding:14px 16px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;">
+            <strong>Recommendations</strong>
+            <span class="muted small">Direct: ${resultsPagination.directCount} | Borderline: ${resultsPagination.reviewCount} | Filtered: ${filteredItems.length}</span>
+          </div>
+          <div class="table-toolbar">
+            <div class="field">
+              <label for="resultsSearch">Search</label>
+              <input id="resultsSearch" type="search" placeholder="Search chuo, course, mkoa, category..." value="${resultsPagination.filters?.query || ""}" />
+            </div>
+            <div class="field">
+              <label for="resultsRegionFilter">Mkoa</label>
+              <select id="resultsRegionFilter">
+                <option value="all">All regions</option>
+                ${regions.map((region) => `<option value="${region}" ${(resultsPagination.filters?.region || "all").toLowerCase() === String(region).toLowerCase() ? "selected" : ""}>${region}</option>`).join("")}
+              </select>
+            </div>
+            <div class="field">
+              <label for="resultsCategoryFilter">Category</label>
+              <select id="resultsCategoryFilter">
+                <option value="all">All categories</option>
+                ${categories.map((category) => `<option value="${category}" ${(resultsPagination.filters?.category || "all").toLowerCase() === String(category).toLowerCase() ? "selected" : ""}>${category}</option>`).join("")}
+              </select>
+            </div>
+            <div class="field">
+              <label for="resultsSortFilter">Sort</label>
+              <select id="resultsSortFilter">
+                <option value="confidence_desc" ${(resultsPagination.filters?.sort || "confidence_desc") === "confidence_desc" ? "selected" : ""}>Confidence: high to low</option>
+                <option value="confidence_asc" ${(resultsPagination.filters?.sort || "confidence_desc") === "confidence_asc" ? "selected" : ""}>Confidence: low to high</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Quick filters</label>
+              <div class="btn-group">
+                <button type="button" class="btn btn-secondary" data-quick-category="all">All</button>
+                <button type="button" class="btn btn-secondary" data-quick-category="health">Health</button>
+                <button type="button" class="btn btn-secondary" data-quick-category="law">Law</button>
+              </div>
+            </div>
+          </div>
+          <div style="overflow-x:auto;">
+            <table class="results-table">
+              <thead>
+                <tr>
+                  <th>Chuo</th>
+                  <th>Course</th>
+                  <th>Confidence</th>
+                  <th>Admission insight</th>
+                  <th>Category</th>
+                  <th>Points</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${pageItems.map((rec) => window.renderResultsRowCompact(rec)).join("")}
+              </tbody>
+            </table>
+          </div>
+          <div class="pagination-bar">
+            <div class="pagination-meta">Page ${resultsPagination.page + 1} of ${totalPages} · Showing ${pageItems.length} of ${filteredItems.length}</div>
+            <div class="pagination-controls">
+              <button type="button" class="btn btn-secondary" id="prevResultsPage" ${resultsPagination.page <= 0 ? "disabled" : ""}>Prev</button>
+              <button type="button" class="btn btn-secondary" id="nextResultsPage" ${resultsPagination.page >= totalPages - 1 ? "disabled" : ""}>Next</button>
+            </div>
+          </div>
+        </div>
+      `;
+      const searchInput = document.getElementById("resultsSearch");
+      const regionFilter = document.getElementById("resultsRegionFilter");
+      const categoryFilter = document.getElementById("resultsCategoryFilter");
+      const sortFilter = document.getElementById("resultsSortFilter");
+      const quickCategoryButtons = document.querySelectorAll("[data-quick-category]");
+      const prevButton = document.getElementById("prevResultsPage");
+      const nextButton = document.getElementById("nextResultsPage");
+      if (searchInput) {
+        searchInput.addEventListener("input", () => {
+          resultsPagination.filters.query = searchInput.value;
+          resultsPagination.page = 0;
+          window.renderResultsPageCompact();
+        });
+      }
+      if (regionFilter) {
+        regionFilter.addEventListener("change", () => {
+          resultsPagination.filters.region = regionFilter.value;
+          resultsPagination.page = 0;
+          window.renderResultsPageCompact();
+        });
+      }
+      if (categoryFilter) {
+        categoryFilter.addEventListener("change", () => {
+          resultsPagination.filters.category = categoryFilter.value;
+          resultsPagination.page = 0;
+          window.renderResultsPageCompact();
+        });
+      }
+      if (sortFilter) {
+        sortFilter.addEventListener("change", () => {
+          resultsPagination.filters.sort = sortFilter.value;
+          resultsPagination.page = 0;
+          window.renderResultsPageCompact();
+        });
+      }
+      if (prevButton) {
+        prevButton.addEventListener("click", () => {
+          resultsPagination.page -= 1;
+          window.renderResultsPageCompact();
+        });
+      }
+      if (nextButton) {
+        nextButton.addEventListener("click", () => {
+          resultsPagination.page += 1;
+          window.renderResultsPageCompact();
+        });
+      }
+      quickCategoryButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          resultsPagination.filters.category = button.dataset.quickCategory || "all";
+          if (categoryFilter) {
+            categoryFilter.value = resultsPagination.filters.category;
+          }
+          resultsPagination.page = 0;
+          window.renderResultsPageCompact();
+        });
+      });
+    };
+
+    window.renderRecommendations = function renderRecommendationsCompact(data) {
+      const recommendations = (data.recommendations || []).map((rec) => ({ ...rec, __isReview: false }));
+      const reviewCandidates = (data.review_candidates || []).map((rec) => ({ ...rec, __isReview: true }));
+      const allRows = [...recommendations, ...reviewCandidates].sort(window.renderResultsCompareRows);
+      resultsPagination.items = allRows;
+      resultsPagination.page = 0;
+      resultsPagination.directCount = recommendations.length;
+      resultsPagination.reviewCount = reviewCandidates.length;
+      resultsPagination.filters = { query: "", region: "all", category: "all", sort: "confidence_desc" };
+      showResultsView();
+      if (!allRows.length) {
+        resultSummaryEl.innerHTML = `<div class="error">Hakuna programme iliyo eligible kwa input hii.</div>`;
+        resultsEl.innerHTML = `<div class="footer-note">Hii inaonyesha current inputs bado hazijafikia direct match. Jaribu combination nyingine au angalia strict requirements.</div>`;
+        return;
+      }
+      resultSummaryEl.innerHTML = `
+        <div class="success">${recommendations.length} direct match(s) zimepatikana.</div>
+        ${reviewCandidates.length ? `<div class="warning" style="margin-top:10px;">${reviewCandidates.length} borderline/parallel options ziko chini kwa review.</div>` : ""}
+      `;
+      window.renderResultsPageCompact();
+    };
+  </script>
+</body>
+</html>
