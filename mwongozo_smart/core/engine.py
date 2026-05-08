@@ -33,7 +33,7 @@ class RecommendationEngine:
         self.ranking_model = ranking_model or RuleBoostedRankingModel()
         self.institutions = {institution.code: institution for institution in INSTITUTIONS}
 
-    def recommend(self, student: StudentResult, limit: int = 25) -> list[Recommendation]:
+    def recommend(self, student: StudentResult, limit: int = 40) -> list[Recommendation]:
         # The principal subjects are summarized once, then reused for all programmes.
         summary = get_principal_summary(student)
         ranked: list[Recommendation] = []
@@ -59,8 +59,8 @@ class RecommendationEngine:
                 student_points=summary.total_points,
                 minimum_required_points=programme.admission_requirement.minimum_total_points,
                 institution_website=self.institutions.get(programme.institution_code).website if self.institutions.get(programme.institution_code) else None,
-                institution_apply_url=self.institutions.get(programme.institution_code).apply_url if self.institutions.get(programme.institution_code) else None,
-                cta_label=self.institutions.get(programme.institution_code).cta_label if self.institutions.get(programme.institution_code) else "Apply Now",
+                institution_apply_url=self._stable_apply_url(programme.institution_code),
+                cta_label=self._stable_cta_label(programme.institution_code),
             )
             ranked.append(recommendation)
 
@@ -99,8 +99,8 @@ class RecommendationEngine:
                     student_points=summary.total_points,
                     minimum_required_points=programme.admission_requirement.minimum_total_points,
                     institution_website=self.institutions.get(programme.institution_code).website if self.institutions.get(programme.institution_code) else None,
-                    institution_apply_url=self.institutions.get(programme.institution_code).apply_url if self.institutions.get(programme.institution_code) else None,
-                    cta_label=self.institutions.get(programme.institution_code).cta_label if self.institutions.get(programme.institution_code) else "Apply Now",
+                    institution_apply_url=self._stable_apply_url(programme.institution_code),
+                    cta_label=self._stable_cta_label(programme.institution_code),
                 )
             )
 
@@ -111,7 +111,7 @@ class RecommendationEngine:
 
         return reviewed[:limit]
 
-    def recommend_grouped(self, student: StudentResult, limit: int = 25) -> dict[str, list[Recommendation]]:
+    def recommend_grouped(self, student: StudentResult, limit: int = 40) -> dict[str, list[Recommendation]]:
         # Same recommendations, grouped by faculty/category section.
         grouped: dict[str, list[Recommendation]] = defaultdict(list)
         for recommendation in self.recommend(student, limit=limit):
@@ -130,7 +130,10 @@ class RecommendationEngine:
             ("PCM", ["Physics", "Chemistry", "Advanced Mathematics"], ["Engineering & Tech", "Science"], ["Best for engineering, IT, and mathematics-heavy routes."]),
             ("PGM", ["Physics", "Geography", "Advanced Mathematics"], ["Engineering & Tech", "Science"], ["Good for planning, surveying, transport, and geo-science tracks."]),
             ("CBG", ["Chemistry", "Biology", "Geography"], ["Health Sciences", "Agriculture", "Science"], ["Useful for health and agriculture-focused programmes."]),
-            ("CBN", ["Commerce", "Book Keeping", "Nutrition"], ["Business", "Accounting & Finance"], ["Useful for bookkeeping, commerce, and business support routes."]),
+            ("CBN", ["Chemistry", "Biology", "Nutrition"], ["Health Sciences", "Agriculture", "Science"], ["Useful for nutrition, health, and agriculture-focused programmes."]),
+            ("HGE", ["History", "Geography", "Economics"], ["Economics & Finance", "Business"], ["Strong fit for economics, policy, and development-focused programmes."]),
+            ("ECA", ["Economics", "Commerce", "Accountancy"], ["Economics & Finance", "Business"], ["Strong fit for accounting, finance, and economics degree routes."]),
+            ("CBE", ["Commerce", "Book Keeping", "Economics"], ["Economics & Finance", "Business"], ["Useful for business economics, finance, and accounting pathways."]),
             ("HGL", ["History", "Geography", "English Language"], ["Education", "Arts & Humanities"], ["Broad humanities track with education and law options."]),
             ("HKL", ["History", "Kiswahili", "English Language"], ["Education", "Arts & Humanities"], ["Strong for teaching, communication, and language-based routes."]),
             ("HGK", ["History", "Geography", "Kiswahili"], ["Education", "Arts & Humanities"], ["Useful for public service and social sciences."]),
@@ -246,8 +249,9 @@ class RecommendationEngine:
         if programme.category == ProgrammeCategory.ARTS or "arts" in tags:
             bias -= 10.0
 
-        business_first_codes = {"PGM", "CBN"}
-        science_first_codes = {"PCB", "PCM", "CBG", "PGM"}
+        business_first_codes = {"PGM"}
+        science_first_codes = {"PCB", "PCM", "CBG", "PGM", "CBN"}
+        economics_first_codes = {"HGE", "ECA", "CBE", "EGM"}
 
         if combo in business_first_codes:
             if programme.category in {ProgrammeCategory.ACCOUNTING_FINANCE, ProgrammeCategory.BUSINESS}:
@@ -266,6 +270,15 @@ class RecommendationEngine:
                 keyword in name for keyword in ("economics", "account", "finance", "banking")
             ):
                 bias += 4.0
+
+        if combo in economics_first_codes:
+            if self._is_economics_programme(programme):
+                # Keep economics-first combinations focused on economics-family programmes.
+                bias += 22.0
+            elif programme.category in {ProgrammeCategory.BUSINESS, ProgrammeCategory.ACCOUNTING_FINANCE}:
+                bias += 8.0
+            else:
+                bias -= 3.0
 
         if combo in {"HKL", "HGL", "HGK"}:
             if programme.category == ProgrammeCategory.ARTS:
@@ -298,4 +311,35 @@ class RecommendationEngine:
         # O-Level applicants should only see certificate and diploma routes.
         if student.pathway.value == "o_level" and programme.award_level == ProgrammeAwardLevel.BACHELOR:
             return False
+        # A-Level applicants should be prioritized to bachelor routes only.
+        if student.pathway.value == "a_level" and programme.award_level != ProgrammeAwardLevel.BACHELOR:
+            return False
         return True
+
+    def _stable_apply_url(self, institution_code: str) -> str | None:
+        institution = self.institutions.get(institution_code)
+        if not institution:
+            return None
+        # Prefer institution homepage for stable navigation when apply portals change.
+        if institution.website and institution.website.startswith("http"):
+            return institution.website
+        if institution.apply_url and institution.apply_url.startswith("http"):
+            return institution.apply_url
+        return institution.website or institution.apply_url
+
+    def _stable_cta_label(self, institution_code: str) -> str:
+        institution = self.institutions.get(institution_code)
+        if not institution:
+            return "Visit Website"
+        return institution.cta_label or "Visit Website"
+
+    def _is_economics_programme(self, programme: Programme) -> bool:
+        name = programme.name.lower()
+        tags = {tag.lower() for tag in programme.tags}
+        return (
+            programme.category == ProgrammeCategory.ACCOUNTING_FINANCE
+            or "economics" in name
+            or "finance" in name
+            or "banking" in name
+            or bool({"economics", "finance", "banking"} & tags)
+        )

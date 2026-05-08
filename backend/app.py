@@ -91,7 +91,9 @@ def home() -> str:
         "Kiswahili",
         "Geography",
         "History",
+        "Economics",
         "Commerce",
+        "Accountancy",
         "Book Keeping",
         "Nutrition",
         "Computer Studies",
@@ -837,7 +839,7 @@ def programmes() -> list[dict[str, object]]:
             "institution_name": programme.institution_name,
             "award_level": programme.award_level.value,
             "website": institution_map.get(programme.institution_code).website if institution_map.get(programme.institution_code) else None,
-            "apply_url": institution_map.get(programme.institution_code).apply_url if institution_map.get(programme.institution_code) else None,
+            "apply_url": institution_map.get(programme.institution_code).website if institution_map.get(programme.institution_code) else None,
             "cta_label": institution_map.get(programme.institution_code).cta_label if institution_map.get(programme.institution_code) else "Apply Now",
             "region": programme.region,
             "category": programme.category.value,
@@ -855,7 +857,9 @@ def recommend(student: StudentInput) -> dict[str, object]:
     try:
         student_result = student.to_student_result()
         result = engine.recommend(student_result)
-        review = engine.review_candidates(student_result)
+        # Keep a wider borderline pool so category filters (for example Health)
+        # still have visible options when strict direct matches are few.
+        review = engine.review_candidates(student_result, limit=50)
         combinations = engine.suggest_combinations(student_result)
         return {
             "input": student.model_dump(),
@@ -893,7 +897,7 @@ def institutions() -> list[dict[str, object]]:
             "city": institution.city,
             "region": institution.region,
             "website": institution.website,
-            "apply_url": institution.apply_url,
+            "apply_url": institution.website or institution.apply_url,
             "cta_label": institution.cta_label,
         }
         for institution in INSTITUTIONS

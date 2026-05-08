@@ -108,5 +108,27 @@ def load_programmes(defaults: list[Programme] | None = None) -> list[Programme]:
     with _connect() as connection:
         rows = list(connection.execute("SELECT payload FROM programmes ORDER BY code"))
     if rows:
-        return [Programme.model_validate(json.loads(row["payload"])) for row in rows]
+        loaded = [Programme.model_validate(json.loads(row["payload"])) for row in rows]
+        default_by_code = {item.code: item for item in defaults}
+        loaded_by_code = {item.code: item for item in loaded}
+        merged: list[Programme] = []
+
+        def merge(default_item: Programme, loaded_item: Programme) -> Programme:
+            payload = default_item.model_dump()
+            loaded_payload = loaded_item.model_dump()
+            for key in ("code", "name", "institution_code", "institution_name", "city", "region", "category", "award_level", "duration_years", "capacity", "competition_tier", "tags"):
+                value = loaded_payload.get(key)
+                if value not in (None, "", []):
+                    payload[key] = value
+            return Programme.model_validate(payload)
+
+        for default_item in defaults:
+            loaded_item = loaded_by_code.get(default_item.code)
+            merged.append(merge(default_item, loaded_item) if loaded_item else default_item)
+
+        for item in loaded:
+            if item.code not in default_by_code:
+                merged.append(item)
+
+        return merged
     return defaults

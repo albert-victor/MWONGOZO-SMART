@@ -137,6 +137,8 @@ class TCURuleEngine:
             # Health programmes are strict because they need the right science base.
             if student.pathway.value == "o_level" and programme.award_level != ProgrammeAwardLevel.BACHELOR:
                 health_ok = self._has_any_subjects(student, ["Biology", "Chemistry", "Physics"])
+            elif student.pathway.value == "a_level":
+                health_ok = self._any_principal_subjects(student, ["Physics", "Chemistry", "Biology"])
             else:
                 health_ok = self._has_any_principal_subjects(student, ["Biology", "Chemistry"])
             add_trace(
@@ -438,6 +440,15 @@ class TCURuleEngine:
         return False
 
     def _section_for(self, programme: Programme) -> str:
+        name = programme.name.lower()
+        tags = {tag.lower() for tag in programme.tags}
+        if programme.category in {ProgrammeCategory.BUSINESS, ProgrammeCategory.ACCOUNTING_FINANCE} and (
+            "economics" in name
+            or "finance" in name
+            or "banking" in name
+            or {"economics", "finance", "banking"} & tags
+        ):
+            return "Economics & Finance"
         return {
             "health": "Health Sciences",
             "engineering": "Engineering & Tech",

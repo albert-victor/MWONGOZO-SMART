@@ -542,7 +542,10 @@
       PCM: ["Physics", "Chemistry", "Advanced Mathematics"],
       PGM: ["Physics", "Geography", "Advanced Mathematics"],
       CBG: ["Chemistry", "Biology", "Geography"],
-      CBN: ["Commerce", "Book Keeping", "Nutrition"],
+      CBN: ["Chemistry", "Biology", "Nutrition"],
+      HGE: ["History", "Geography", "Economics"],
+      ECA: ["Economics", "Commerce", "Accountancy"],
+      CBE: ["Commerce", "Book Keeping", "Economics"],
       HGL: ["History", "Geography", "English Language"],
       HKL: ["History", "Kiswahili", "English Language"],
       HGK: ["History", "Geography", "Kiswahili"],
@@ -1090,6 +1093,18 @@
       const query = String(resultsPagination.filters?.query || "").trim().toLowerCase();
       const region = String(resultsPagination.filters?.region || "all").trim().toLowerCase();
       const category = String(resultsPagination.filters?.category || "all").trim().toLowerCase();
+      const isEconomicsCourse = (rec) => {
+        const categoryName = String(rec.programme?.category || "").toLowerCase();
+        const courseName = String(rec.programme?.name || "").toLowerCase();
+        const tags = (rec.programme?.tags || []).map((tag) => String(tag).toLowerCase());
+        return (
+          categoryName === "accounting_finance" ||
+          courseName.includes("economics") ||
+          courseName.includes("finance") ||
+          courseName.includes("banking") ||
+          tags.some((tag) => ["economics", "finance", "banking"].includes(tag))
+        );
+      };
       return (resultsPagination.items || []).filter((rec) => {
         const haystack = [
           rec.programme?.institution_name,
@@ -1105,7 +1120,8 @@
           .join(" ");
         const matchesQuery = !query || haystack.includes(query);
         const matchesRegion = region === "all" || String(rec.programme?.region || "").toLowerCase() === region;
-        const matchesCategory = category === "all" || String(rec.programme?.category || "").toLowerCase() === category;
+        const matchesCategory = category === "all"
+          || (category === "economics" ? isEconomicsCourse(rec) : String(rec.programme?.category || "").toLowerCase() === category);
         return matchesQuery && matchesRegion && matchesCategory;
       });
     };
@@ -1208,6 +1224,7 @@
               <div class="btn-group">
                 <button type="button" class="btn btn-secondary" data-quick-category="all">All</button>
                 <button type="button" class="btn btn-secondary" data-quick-category="health">Health</button>
+                <button type="button" class="btn btn-secondary" data-quick-category="economics">Economics</button>
                 <button type="button" class="btn btn-secondary" data-quick-category="law">Law</button>
               </div>
             </div>
