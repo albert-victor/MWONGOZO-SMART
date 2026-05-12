@@ -4,7 +4,7 @@ import logging
 from collections import defaultdict
 from collections.abc import Iterable
 
-from mwongozo_smart.core.calculator import get_principal_summary
+from mwongozo_smart.core.calculator import OLevelSummary, get_o_level_summary, get_principal_summary
 from mwongozo_smart.core.models import CombinationSuggestion, ConfidenceBand, Programme, ProgrammeAwardLevel, ProgrammeCategory, Recommendation, StudentResult
 from mwongozo_smart.core.rules import TCURuleEngine
 from mwongozo_smart.data.guidebook_data import PROGRAMMES
@@ -33,9 +33,10 @@ class RecommendationEngine:
         self.ranking_model = ranking_model or RuleBoostedRankingModel()
         self.institutions = {institution.code: institution for institution in INSTITUTIONS}
 
-    def recommend(self, student: StudentResult, limit: int = 40) -> list[Recommendation]:
+    def recommend(self, student: StudentResult, limit: int = 80) -> list[Recommendation]:
         # The principal subjects are summarized once, then reused for all programmes.
         summary = get_principal_summary(student)
+        o_summary = get_o_level_summary(student) if student.pathway.value == "o_level" else None
         ranked: list[Recommendation] = []
 
         for programme in self.programmes:
@@ -48,16 +49,22 @@ class RecommendationEngine:
                 continue
 
             # Second pass: heuristic ranking for the programmes that passed rules.
-            score = self._score(student, programme, summary.total_points)
+            score = self._score(student, programme, summary.total_points, o_summary=o_summary)
             assessment.score = score
-            assessment.confidence = round(self._confidence(score, programme), 2)
+            assessment.confidence = round(self._confidence(score, programme, student, o_summary=o_summary), 2)
             assessment.confidence_band = ConfidenceBand(confidence_band_from_score(assessment.confidence))
             assessment.parallel_courses = self._parallel_courses(programme)
+            display_student_points = o_summary.total_grade_points if o_summary else summary.total_points
+            display_minimum = (
+                float(programme.admission_requirement.minimum_o_level_passes or 0)
+                if o_summary
+                else programme.admission_requirement.minimum_total_points
+            )
             recommendation = Recommendation(
                 programme=programme,
                 assessment=assessment,
-                student_points=summary.total_points,
-                minimum_required_points=programme.admission_requirement.minimum_total_points,
+                student_points=display_student_points,
+                minimum_required_points=display_minimum,
                 institution_website=self.institutions.get(programme.institution_code).website if self.institutions.get(programme.institution_code) else None,
                 institution_apply_url=self._stable_apply_url(programme.institution_code),
                 cta_label=self._stable_cta_label(programme.institution_code),
@@ -74,6 +81,7 @@ class RecommendationEngine:
     def review_candidates(self, student: StudentResult, limit: int = 10) -> list[Recommendation]:
         # Near-miss programmes are useful when there are no direct matches.
         summary = get_principal_summary(student)
+        o_summary = get_o_level_summary(student) if student.pathway.value == "o_level" else None
         reviewed: list[Recommendation] = []
 
         for programme in self.programmes:
@@ -83,21 +91,27 @@ class RecommendationEngine:
             if assessment.eligible:
                 continue
 
-            score = self._score(student, programme, summary.total_points)
+            score = self._score(student, programme, summary.total_points, o_summary=o_summary)
             assessment.score = score
-            assessment.confidence = round(self._confidence(score, programme), 2)
+            assessment.confidence = round(self._confidence(score, programme, student, o_summary=o_summary), 2)
             assessment.confidence_band = ConfidenceBand(confidence_band_from_score(assessment.confidence))
             assessment.parallel_courses = self._parallel_courses(programme)
 
             if score < 22.0 and assessment.points_margin < -2.0:
                 continue
 
+            display_student_points = o_summary.total_grade_points if o_summary else summary.total_points
+            display_minimum = (
+                float(programme.admission_requirement.minimum_o_level_passes or 0)
+                if o_summary
+                else programme.admission_requirement.minimum_total_points
+            )
             reviewed.append(
                 Recommendation(
                     programme=programme,
                     assessment=assessment,
-                    student_points=summary.total_points,
-                    minimum_required_points=programme.admission_requirement.minimum_total_points,
+                    student_points=display_student_points,
+                    minimum_required_points=display_minimum,
                     institution_website=self.institutions.get(programme.institution_code).website if self.institutions.get(programme.institution_code) else None,
                     institution_apply_url=self._stable_apply_url(programme.institution_code),
                     cta_label=self._stable_cta_label(programme.institution_code),
@@ -111,7 +125,7 @@ class RecommendationEngine:
 
         return reviewed[:limit]
 
-    def recommend_grouped(self, student: StudentResult, limit: int = 40) -> dict[str, list[Recommendation]]:
+    def recommend_grouped(self, student: StudentResult, limit: int = 80) -> dict[str, list[Recommendation]]:
         # Same recommendations, grouped by faculty/category section.
         grouped: dict[str, list[Recommendation]] = defaultdict(list)
         for recommendation in self.recommend(student, limit=limit):
@@ -157,22 +171,44 @@ class RecommendationEngine:
         suggestions.sort(key=lambda item: item.confidence, reverse=True)
         return suggestions[:limit]
 
-    def _score(self, student: StudentResult, programme: Programme, student_points: float) -> float:
+    def _score(
+        self,
+        student: StudentResult,
+        programme: Programme,
+        student_points: float,
+        *,
+        o_summary: OLevelSummary | None = None,
+    ) -> float:
         # Combine points margin, subject fit, competition, region preference, and capacity.
+        combo = self._student_combination(student)
         req = programme.admission_requirement
-        points_margin = max(0.0, student_points - req.minimum_total_points)
-
-        subject_pool = req.principal_subject_pool
-        pool_fit = 0.0
-        if subject_pool and req.principal_pool_min_count:
-            matched = sum(
-                1
-                for subject in student.a_level_subjects
-                if subject.subject.strip().lower() in {item.lower() for item in subject_pool}
-            )
-            pool_fit = min(1.0, matched / max(1, req.principal_pool_min_count))
+        if o_summary is not None:
+            min_o = req.minimum_o_level_passes or 4
+            pass_margin = max(0, o_summary.pass_count - min_o)
+            avg_strength = o_summary.total_grade_points / max(1, o_summary.pass_count)
+            points_margin = float(pass_margin) + max(0.0, avg_strength - 2.0) * 0.85
+            subject_pool = req.principal_subject_pool
+            pool_fit = 0.0
+            if subject_pool and req.principal_pool_min_count:
+                pool_lower = {normalize_subject_name(item).lower() for item in subject_pool}
+                matched = sum(1 for name in o_summary.subjects_passing if name.lower() in pool_lower)
+                pool_fit = min(1.0, matched / max(1, req.principal_pool_min_count))
+            else:
+                pool_fit = min(1.0, 0.28 + 0.62 * min(1.0, o_summary.pass_count / 7.0))
         else:
-            pool_fit = 0.35
+            points_margin = max(0.0, student_points - req.minimum_total_points)
+            subject_pool = req.principal_subject_pool
+            pool_fit = 0.0
+            if subject_pool and req.principal_pool_min_count:
+                pool_lower = {normalize_subject_name(item).lower() for item in subject_pool}
+                matched = sum(
+                    1
+                    for subject in student.a_level_subjects
+                    if subject.principal and normalize_subject_name(subject.subject).lower() in pool_lower
+                )
+                pool_fit = min(1.0, matched / max(1, req.principal_pool_min_count))
+            else:
+                pool_fit = 0.35
 
         region_match = 1.0 if programme.region.lower() in set(student.preferred_regions) else 0.0
         preferred_institutions = set(student.preferred_institutions)
@@ -202,23 +238,47 @@ class RecommendationEngine:
         elif programme.competition_tier == 4:
             combined -= 6.0
 
+        if combo == "PCB" and programme.category == ProgrammeCategory.HEALTH:
+            combined += 18.0 if self._is_major_health_programme(programme) else 6.0
+        elif combo in {"CBG", "CBN"} and programme.category == ProgrammeCategory.HEALTH:
+            combined += 14.0 if self._is_major_health_programme(programme) else 4.0
+        elif combo == "PCM" and programme.category == ProgrammeCategory.HEALTH:
+            combined += 8.0 if self._is_major_health_programme(programme) else 3.0
+
         if region_match or institution_match:
             combined += 4.0
 
         return round(max(0.0, min(100.0, combined)), 2)
 
-    def _confidence(self, score: float, programme: Programme) -> float:
+    def _confidence(
+        self,
+        score: float,
+        programme: Programme,
+        student: StudentResult,
+        *,
+        o_summary: OLevelSummary | None = None,
+    ) -> float:
         # Confidence is a user-facing version of how strong the match looks.
-        confidence = 24.0 + (score * 0.70)
-        confidence += min(max(score - 50.0, 0.0), 25.0) * 0.35
-        confidence += min(max(12.0 - programme.admission_requirement.minimum_total_points, 0.0), 8.0) * 0.5
-        confidence += min(max(programme.admission_requirement.minimum_o_level_passes, 0), 6) * 0.9
-        confidence -= max(0, programme.competition_tier - 1) * 1.35
+        confidence = 22.0 + (score * 0.72)
+        confidence += min(max(score - 40.0, 0.0), 30.0) * 0.48
+        confidence += min(max(programme.admission_requirement.minimum_principal_passes, 0), 4) * 0.55
+        confidence += min(max(programme.admission_requirement.minimum_total_points, 0.0), 12.0) * 0.16
+        confidence += min(max(programme.admission_requirement.minimum_o_level_passes, 0), 6) * 0.85
+        confidence -= max(0, programme.competition_tier - 1) * 1.05
         if programme.admission_requirement.strict:
-            confidence -= 0.75
+            confidence -= 0.85
         if programme.category.name in {"HEALTH", "ENGINEERING"}:
-            confidence -= 0.5
-        return max(18.0, min(98.0, confidence))
+            confidence -= 0.30
+        if score >= 75.0:
+            confidence += 2.5
+        elif score < 35.0:
+            confidence -= 1.0
+        if o_summary is not None:
+            confidence += min(8.0, max(0, o_summary.pass_count - 4) * 1.1)
+            confidence += min(5.0, max(0.0, o_summary.total_grade_points / max(1, o_summary.pass_count) - 2.5) * 2.0)
+        elif student.pathway.value == "a_level":
+            confidence += 1.2
+        return max(24.0, min(97.0, confidence))
 
     def _rank_key(self, student: StudentResult, recommendation: Recommendation) -> tuple[float, float, float, float, float]:
         # Show the strongest confidence first, then use score and pathway bias as tie-breakers.
@@ -238,6 +298,7 @@ class RecommendationEngine:
         bias = 0.0
 
         if student.pathway.value == "o_level":
+            bias += self._o_level_subject_bias(student, programme)
             if programme.award_level == ProgrammeAwardLevel.CERTIFICATE:
                 bias += 12.0
             elif programme.award_level == ProgrammeAwardLevel.DIPLOMA:
@@ -246,12 +307,12 @@ class RecommendationEngine:
             if programme.award_level == ProgrammeAwardLevel.BACHELOR:
                 bias += 8.0
 
-        if programme.category == ProgrammeCategory.ARTS or "arts" in tags:
-            bias -= 10.0
-
         business_first_codes = {"PGM"}
         science_first_codes = {"PCB", "PCM", "CBG", "PGM", "CBN"}
         economics_first_codes = {"HGE", "ECA", "CBE", "EGM"}
+
+        if combo in science_first_codes and (programme.category == ProgrammeCategory.ARTS or "arts" in tags):
+            bias -= 10.0
 
         if combo in business_first_codes:
             if programme.category in {ProgrammeCategory.ACCOUNTING_FINANCE, ProgrammeCategory.BUSINESS}:
@@ -262,14 +323,23 @@ class RecommendationEngine:
                 bias -= 4.0
 
         if combo in science_first_codes:
-            if "education" in name and "science" in name:
+            if programme.category == ProgrammeCategory.HEALTH:
+                bias += 20.0 if self._is_major_health_programme(programme) else 6.0
+            elif "education" in name and "science" in name:
                 bias += 16.0
-            elif programme.category in {ProgrammeCategory.SCIENCE, ProgrammeCategory.ENGINEERING, ProgrammeCategory.TECH, ProgrammeCategory.COMPUTING, ProgrammeCategory.HEALTH}:
+            elif programme.category in {ProgrammeCategory.SCIENCE, ProgrammeCategory.ENGINEERING, ProgrammeCategory.TECH, ProgrammeCategory.COMPUTING}:
                 bias += 10.0
             elif programme.category in {ProgrammeCategory.ACCOUNTING_FINANCE, ProgrammeCategory.BUSINESS} and any(
                 keyword in name for keyword in ("economics", "account", "finance", "banking")
             ):
                 bias += 4.0
+
+        if combo == "PCB" and programme.category == ProgrammeCategory.HEALTH:
+            bias += 22.0 if self._is_major_health_programme(programme) else 8.0
+        elif combo in {"CBG", "CBN"} and programme.category == ProgrammeCategory.HEALTH:
+            bias += 14.0 if self._is_major_health_programme(programme) else 4.0
+        elif combo == "PCM" and programme.category == ProgrammeCategory.HEALTH:
+            bias += 8.0 if self._is_major_health_programme(programme) else 3.0
 
         if combo in economics_first_codes:
             if self._is_economics_programme(programme):
@@ -286,6 +356,37 @@ class RecommendationEngine:
             else:
                 bias -= 2.0
 
+        return bias
+
+    def _o_level_subject_bias(self, student: StudentResult, programme: Programme) -> float:
+        # Nudge certificate/diploma ranking toward programmes that match the student's CSEE subject mix.
+        oset = {normalize_subject_name(s.subject).lower() for s in student.o_level_subjects if s.grade and s.grade.strip()}
+        if not oset:
+            return 0.0
+        bias = 0.0
+        science_core = {"physics", "chemistry", "biology"} & oset
+        if programme.category == ProgrammeCategory.HEALTH and len(science_core) >= 2:
+            bias += 16.0 if self._is_major_health_programme(programme) else 8.0
+        elif programme.category == ProgrammeCategory.ENGINEERING and (
+            "basic mathematics" in oset or "physics" in oset or "chemistry" in oset
+        ):
+            bias += 11.0
+        elif programme.category in {ProgrammeCategory.COMPUTING, ProgrammeCategory.TECH} and (
+            "computer science" in oset or "basic mathematics" in oset
+        ):
+            bias += 9.0
+        elif programme.category in {ProgrammeCategory.BUSINESS, ProgrammeCategory.ACCOUNTING_FINANCE} and (
+            {"commerce", "book keeping", "economics", "accountancy"} & oset
+        ):
+            bias += 11.0
+        elif programme.category == ProgrammeCategory.EDUCATION and ({"kiswahili", "english language", "history", "geography"} & oset):
+            bias += 7.0
+        elif programme.category == ProgrammeCategory.LAW and "english language" in oset:
+            bias += 9.0
+        elif programme.category == ProgrammeCategory.AGRICULTURE and ("agriculture" in oset or len(science_core) >= 1):
+            bias += 8.0
+        elif programme.category == ProgrammeCategory.ARTS and ({"history", "geography", "english language", "kiswahili", "fine arts"} & oset):
+            bias += 6.0
         return bias
 
     def _student_combination(self, student: StudentResult) -> str:
@@ -342,4 +443,74 @@ class RecommendationEngine:
             or "finance" in name
             or "banking" in name
             or bool({"economics", "finance", "banking"} & tags)
+        )
+
+    def _is_medicine_programme(self, programme: Programme) -> bool:
+        name = programme.name.lower()
+        tags = {tag.lower() for tag in programme.tags}
+        return bool(
+            {
+                "medicine",
+                "dental",
+                "dentistry",
+                "nursing",
+                "pharmacy",
+                "physiotherapy",
+                "laboratory",
+                "midwifery",
+                "public health",
+                "health information",
+                "clinical medicine",
+                "biomedical",
+                "radiography",
+                "optometry",
+            }
+            & ({name} | tags | set(name.split()))
+        ) or any(
+            keyword in name
+            for keyword in (
+                "doctor of medicine",
+                "doctor of dental surgery",
+                "medical laboratory",
+                "health sciences",
+                "health systems",
+                "community health",
+            )
+        )
+
+    def _is_major_health_programme(self, programme: Programme) -> bool:
+        name = programme.name.lower()
+        tags = {tag.lower() for tag in programme.tags}
+        keywords = {
+            "medicine",
+            "medical",
+            "nursing",
+            "midwifery",
+            "pharmacy",
+            "dentistry",
+            "dental",
+            "physiotherapy",
+            "laboratory",
+            "clinical medicine",
+            "radiography",
+            "optometry",
+            "public health",
+            "biomedical",
+            "surgery",
+        }
+        return bool(keywords & ({name} | tags | set(name.split()))) or any(
+            keyword in name
+            for keyword in (
+                "doctor of medicine",
+                "doctor of dental surgery",
+                "medical laboratory",
+                "clinical medicine",
+                "health sciences",
+                "nursing and midwifery",
+                "public health",
+                "pharmacy",
+                "physiotherapy",
+                "biomedical",
+                "surgery",
+            )
         )

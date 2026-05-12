@@ -25,12 +25,12 @@ class RuleBoostedRankingModel:
     def __init__(self) -> None:
         # Simple weights that can later be replaced by a trained model.
         self.weights = {
-            "bias": -0.8,
-            "points_margin": 0.55,
-            "subject_fit": 1.1,
-            "competition_tier": -0.35,
-            "region_match": 0.25,
-            "capacity_factor": 0.12,
+            "bias": -0.45,
+            "points_margin": 0.62,
+            "subject_fit": 1.15,
+            "competition_tier": -0.32,
+            "region_match": 0.28,
+            "capacity_factor": 0.14,
         }
 
     def predict_probability(self, features: FeatureVector | dict[str, Any]) -> float:

@@ -15,6 +15,14 @@ class PrincipalSummary:
     principal_count: int
 
 
+@dataclass(slots=True)
+class OLevelSummary:
+    # CSEE-style summary for certificate and diploma pathway scoring.
+    pass_count: int
+    total_grade_points: float
+    subjects_passing: list[str]
+
+
 def _subject_points(subject: SubjectGrade, scheme: ALevelScheme) -> float:
     return grade_points(subject.grade, scheme)
 
@@ -41,6 +49,26 @@ def get_principal_summary(student: StudentResult) -> PrincipalSummary:
     selected = principal_subjects[:3]
     total_points = round(sum(_subject_points(item, scheme) for item in selected), 2)
     return PrincipalSummary(principal_subjects=selected, total_points=total_points, principal_count=len(principal_subjects))
+
+
+def get_o_level_summary(student: StudentResult) -> OLevelSummary:
+    # Count O-Level passes (grade D or better in the shared point scale) and total strength.
+    normalize_student_subjects(student)
+    subjects_passing: list[str] = []
+    total_grade_points = 0.0
+    for subject in student.o_level_subjects:
+        if not subject.grade or not subject.grade.strip():
+            continue
+        if not grade_at_least(subject.grade, "D", ALevelScheme.POST_2016):
+            continue
+        name = normalize_subject_name(subject.subject)
+        subjects_passing.append(name)
+        total_grade_points += grade_points(subject.grade, ALevelScheme.POST_2016)
+    return OLevelSummary(
+        pass_count=len(subjects_passing),
+        total_grade_points=round(total_grade_points, 2),
+        subjects_passing=subjects_passing,
+    )
 
 
 def student_has_subject(student: StudentResult, subject_name: str, minimum_grade: str | None = None) -> bool:

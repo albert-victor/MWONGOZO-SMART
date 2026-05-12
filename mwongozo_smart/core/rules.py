@@ -4,10 +4,12 @@ from collections.abc import Iterable
 
 from mwongozo_smart.core.calculator import (
     a_level_subject_grade_map,
+    get_o_level_summary,
     get_principal_summary,
     o_level_subject_grade_map,
     student_has_subject,
 )
+from mwongozo_smart.utils.combination_helper import normalize_subject_name
 from mwongozo_smart.core.models import (
     AdmissionRequirement,
     ConfidenceBand,
@@ -236,13 +238,14 @@ class TCURuleEngine:
 
         if requirement.principal_subject_pool and requirement.principal_pool_min_count:
             # Many programmes need a specific subject mix, not just a point total.
-            count = self._count_pool_matches(student, requirement.principal_subject_pool)
+            count = self._count_pool_matches(student, requirement.principal_subject_pool, college_route)
             pool_ok = count >= requirement.principal_pool_min_count
+            pool_label = "O-Level subjects in the approved pool" if college_route else "Principal subjects from the approved pool"
             add_trace(
                 "principal_pool",
                 "Approved subject pool",
                 pool_ok,
-                f"Needs at least {requirement.principal_pool_min_count} principal subjects from the approved pool, found {count}.",
+                f"Needs at least {requirement.principal_pool_min_count} {pool_label.lower()}, found {count}.",
                 15.0,
             )
             if not pool_ok:
@@ -370,11 +373,23 @@ class TCURuleEngine:
 
         eligible = not issues
         section = self._section_for(programme)
-        points_margin = summary.total_points - requirement.minimum_total_points
-        why_recommended = [
-            f"Meets minimum admission points with a margin of {round(points_margin, 2)}.",
-            f"Matched {len(matched_rules)} rule(s) successfully.",
-        ]
+        if college_route:
+            o_summary = get_o_level_summary(student)
+            min_o = requirement.minimum_o_level_passes or 0
+            if min_o:
+                points_margin = float(o_summary.pass_count - min_o)
+            else:
+                points_margin = max(0.0, float(o_summary.pass_count - 4))
+            why_recommended = [
+                f"CSEE route: {o_summary.pass_count} O-Level pass(es); margin versus this programme's minimum is about {round(points_margin, 2)}.",
+                f"Matched {len(matched_rules)} rule(s) successfully.",
+            ]
+        else:
+            points_margin = summary.total_points - requirement.minimum_total_points
+            why_recommended = [
+                f"Meets minimum admission points with a margin of {round(points_margin, 2)}.",
+                f"Matched {len(matched_rules)} rule(s) successfully.",
+            ]
         if warnings:
             why_recommended.extend(warnings)
         why_borderline = []
@@ -402,12 +417,20 @@ class TCURuleEngine:
             points_margin=points_margin,
         )
 
-    def _count_pool_matches(self, student: StudentResult, pool: Iterable[str]) -> int:
-        # Count how many principal subjects are inside the approved pool.
-        pool_set = {item.strip().lower() for item in pool}
+    def _count_pool_matches(self, student: StudentResult, pool: Iterable[str], college_route: bool) -> int:
+        # Count A-Level principals or (for college routes) O-Level passes inside the approved pool.
+        pool_set = {normalize_subject_name(item).lower() for item in pool}
+        if college_route:
+            count = 0
+            for subject in student.o_level_subjects:
+                if not grade_at_least(subject.grade, "D"):
+                    continue
+                if normalize_subject_name(subject.subject).lower() in pool_set:
+                    count += 1
+            return count
         count = 0
         for subject in student.a_level_subjects:
-            if subject.subject.strip().lower() in pool_set and subject.principal:
+            if normalize_subject_name(subject.subject).lower() in pool_set and subject.principal:
                 count += 1
         return count
 

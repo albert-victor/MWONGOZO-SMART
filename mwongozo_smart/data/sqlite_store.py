@@ -12,6 +12,13 @@ T = TypeVar("T")
 DB_PATH = Path(__file__).with_name("mwongozo_smart.sqlite3")
 
 
+def _unique_by_code(items: list[T]) -> list[T]:
+    unique: dict[str, T] = {}
+    for item in items:
+        unique[getattr(item, "code")] = item
+    return list(unique.values())
+
+
 def _connect() -> sqlite3.Connection:
     connection = sqlite3.connect(DB_PATH)
     connection.row_factory = sqlite3.Row
@@ -41,6 +48,7 @@ def ensure_schema() -> None:
 
 def _seed_table(table: str, items: list[T], key_getter: Callable[[T], str]) -> None:
     ensure_schema()
+    items = _unique_by_code(items)
     with _connect() as connection:
         existing = {
             row["code"]
@@ -68,7 +76,7 @@ def seed_programmes(items: list[Programme]) -> None:
 
 def load_institutions(defaults: list[Institution] | None = None) -> list[Institution]:
     ensure_schema()
-    defaults = list(defaults or [])
+    defaults = _unique_by_code(list(defaults or []))
     if defaults:
         seed_institutions(defaults)
     with _connect() as connection:
@@ -102,7 +110,7 @@ def load_institutions(defaults: list[Institution] | None = None) -> list[Institu
 
 def load_programmes(defaults: list[Programme] | None = None) -> list[Programme]:
     ensure_schema()
-    defaults = list(defaults or [])
+    defaults = _unique_by_code(list(defaults or []))
     if defaults:
         seed_programmes(defaults)
     with _connect() as connection:

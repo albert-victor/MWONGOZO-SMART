@@ -3,24 +3,93 @@
 import json
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+import httpx
+from fastapi import APIRouter, FastAPI, HTTPException, Query, Request
+
+# region agent log
+def _debug_log(location: str, message: str, data: dict | None = None, hypothesis_id: str = "H1") -> None:
+    """Append one NDJSON entry to debug-4a10e1.log (debug mode instrumentation)."""
+    try:
+        import time as _t
+        log_path = Path(__file__).resolve().parent.parent / "debug-4a10e1.log"
+        entry = {
+            "sessionId": "4a10e1",
+            "id": f"log_{int(_t.time() * 1000)}_{location}",
+            "timestamp": int(_t.time() * 1000),
+            "location": location,
+            "message": message,
+            "data": data or {},
+            "hypothesisId": hypothesis_id,
+        }
+        with log_path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(entry, default=str) + "\n")
+    except Exception:
+        pass
+# endregion
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 
+from mwongozo_smart.core.calculator import get_principal_summary
 from mwongozo_smart.core.engine import RecommendationEngine
 from mwongozo_smart.core.models import AdmissionPathway, ALevelScheme, StudentResult, SubjectGrade
 from mwongozo_smart.data.guidebook_data import PROGRAMMES
 from mwongozo_smart.data.institutions import INSTITUTIONS
+from mwongozo_smart.exam_lookup import CseeResultService, StudentLookupRequest, necta_result_to_student_payload
+from mwongozo_smart.exam_lookup.discovery_service import ExamDiscoveryService
+from mwongozo_smart.exam_lookup.models import (
+    AcseeLookupRequest,
+    AcseeRecommendRequest,
+    StudentResultsLookupRequest,
+    StudentResultsRecommendRequest,
+)
+from mwongozo_smart.exam_lookup.acsee_service import (
+    AcseeResultService,
+    necta_acsee_to_student_result,
+    student_result_to_api_input,
+)
 from mwongozo_smart.utils.combination_helper import COMBINATION_MAP
 
 
 engine = RecommendationEngine()
+csee_result_service = CseeResultService()
+acsee_service = AcseeResultService()
+exam_discovery_service = ExamDiscoveryService()
+student_router = APIRouter(prefix="/student", tags=["student"])
 app = FastAPI(title="Mwongozo Smart", version="0.1.0")
+
+# region agent log
+_debug_log(
+    "backend/app.py:module-load",
+    "FastAPI app constructed",
+    {"app_id": id(app), "module_file": str(Path(__file__).resolve())},
+    hypothesis_id="H2/H3",
+)
+# endregion
 
 
 def get_engine() -> RecommendationEngine:
     # Single shared engine instance used by all API routes.
     return engine
+
+
+def get_csee_result_service() -> CseeResultService:
+    return csee_result_service
+
+
+def build_recommendation_response(student: StudentInput, limit: int) -> dict[str, object]:
+    student_result = student.to_student_result()
+    result = engine.recommend(student_result, limit=limit)
+    review_limit = min(120, max(60, limit + 20))
+    review = engine.review_candidates(student_result, limit=review_limit)
+    combinations = engine.suggest_combinations(student_result)
+    return {
+        "input": student.model_dump(),
+        "loaded_programmes": len(PROGRAMMES),
+        "count": len(result),
+        "recommendations": [item.model_dump(mode="json") for item in result],
+        "review_candidates": [item.model_dump(mode="json") for item in review],
+        "combination_suggestions": [item.model_dump(mode="json") for item in combinations],
+    }
 
 
 class SubjectInput(BaseModel):
@@ -84,6 +153,7 @@ def home() -> str:
         "Physics",
         "Chemistry",
         "Biology",
+        "General Studies",
         "Advanced Mathematics",
         "Basic Applied Mathematics",
         "Basic Mathematics",
@@ -852,31 +922,96 @@ def programmes() -> list[dict[str, object]]:
 
 
 @app.post("/recommend")
-def recommend(student: StudentInput) -> dict[str, object]:
+def recommend(
+    student: StudentInput,
+    limit: int = Query(80, ge=1, le=200, description="Max eligible recommendations to return"),
+) -> dict[str, object]:
     # Main API: evaluate the student and return ranked eligible programmes.
     try:
-        student_result = student.to_student_result()
-        result = engine.recommend(student_result)
-        # Keep a wider borderline pool so category filters (for example Health)
-        # still have visible options when strict direct matches are few.
-        review = engine.review_candidates(student_result, limit=50)
-        combinations = engine.suggest_combinations(student_result)
-        return {
-            "input": student.model_dump(),
-            "loaded_programmes": len(PROGRAMMES),
-            "count": len(result),
-            "recommendations": [item.model_dump(mode="json") for item in result],
-            "review_candidates": [item.model_dump(mode="json") for item in review],
-            "combination_suggestions": [item.model_dump(mode="json") for item in combinations],
+        return build_recommendation_response(student, limit=limit)
+    except Exception as exc:  # pragma: no cover - defensive API guard
+        return JSONResponse(status_code=500, content={"detail": f"Recommendation engine failed: {exc}"})
+
+
+@app.post("/student/lookup")
+async def student_lookup(body: StudentLookupRequest) -> dict[str, object]:
+    service = get_csee_result_service()
+    try:
+        result = await service.lookup(body.year, body.candidate_number)
+        student_payload = necta_result_to_student_payload(result)
+        response: dict[str, object] = {
+            "necta": result.model_dump(mode="json"),
+            "student_input": student_payload,
         }
+        if body.include_recommendations:
+            student_model = StudentInput.model_validate(student_payload)
+            response["recommendations_bundle"] = build_recommendation_response(student_model, limit=body.recommend_limit)
+        return response
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=502, detail=f"NECTA upstream request failed: {exc}") from exc
+
+
+@app.post("/student/results/lookup")
+async def student_results_lookup(body: StudentResultsLookupRequest, request: Request) -> dict[str, object]:
+    """CSEE / ACSEE lookup with automatic NECTA vs TETEA source selection (same-origin as `/`)."""
+    # region agent log
+    _debug_log(
+        "backend/app.py:/student/results/lookup",
+        "endpoint entered",
+        {
+            "path": request.url.path,
+            "exam_type": getattr(body, "exam_type", None),
+            "year": getattr(body, "year", None),
+            "cno": getattr(body, "candidate_number", None),
+        },
+        hypothesis_id="H1/H4",
+    )
+    # endregion
+    try:
+        return await exam_discovery_service.lookup(body)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=502, detail=f"Upstream request failed: {exc}") from exc
+
+
+@app.post("/student/results/recommend")
+async def student_results_recommend(body: StudentResultsRecommendRequest) -> dict[str, object]:
+    """CSEE / ACSEE lookup then TCU recommendations."""
+    try:
+        return await exam_discovery_service.recommend(body, get_engine())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=502, detail=f"Upstream request failed: {exc}") from exc
+
+
+@app.post("/student/profile/recommend")
+def student_profile_recommend(
+    student: StudentInput,
+    limit: int = Query(80, ge=1, le=200, description="Max eligible recommendations to return"),
+) -> dict[str, object]:
+    try:
+        return build_recommendation_response(student, limit=limit)
     except Exception as exc:  # pragma: no cover - defensive API guard
         return JSONResponse(status_code=500, content={"detail": f"Recommendation engine failed: {exc}"})
 
 
 @app.post("/recommend/grouped")
-def recommend_grouped(student: StudentInput) -> dict[str, object]:
+def recommend_grouped(
+    student: StudentInput,
+    limit: int = Query(80, ge=1, le=200),
+) -> dict[str, object]:
     # Same recommendations, but grouped by programme section.
-    grouped = engine.recommend_grouped(student.to_student_result())
+    grouped = engine.recommend_grouped(student.to_student_result(), limit=limit)
     return {
         "input": student.model_dump(),
         "loaded_programmes": len(PROGRAMMES),
@@ -908,4 +1043,105 @@ def institutions() -> list[dict[str, object]]:
 def value_error_handler(_: Request, exc: ValueError) -> JSONResponse:
     # Convert validation/runtime value errors into a clean JSON response.
     return JSONResponse(status_code=400, content={"detail": str(exc)})
+
+
+@student_router.post("/acsee/lookup")
+async def student_acsee_lookup(payload: AcseeLookupRequest) -> dict[str, object]:
+    # Resolve a candidate from official NECTA ACSEE HTML and map to the same JSON shape as /recommend.
+    try:
+        parsed = await acsee_service.lookup(
+            payload.year,
+            payload.candidate_number,
+            refresh_centre_index=payload.refresh_centre_index,
+        )
+        student_result = necta_acsee_to_student_result(parsed)
+        principal = get_principal_summary(student_result)
+        return {
+            "necta": parsed.model_dump(mode="json"),
+            "input": student_result_to_api_input(student_result),
+            "tcu_points": principal.total_points,
+            "principal_count": principal.principal_count,
+        }
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"detail": str(exc)})
+    except Exception as exc:  # pragma: no cover
+        return JSONResponse(status_code=502, content={"detail": f"NECTA lookup failed: {exc}"})
+
+
+@student_router.post("/acsee/recommend")
+async def student_acsee_recommend(payload: AcseeRecommendRequest) -> dict[str, object]:
+    # Lookup ACSEE results then run the same recommendation pipeline as POST /recommend.
+    try:
+        parsed = await acsee_service.lookup(
+            payload.year,
+            payload.candidate_number,
+            refresh_centre_index=payload.refresh_centre_index,
+        )
+        return acsee_service.recommend_from_acsee(
+            parsed,
+            engine,
+            limit=payload.recommend_limit,
+            preferred_regions=payload.preferred_regions,
+            preferred_institutions=payload.preferred_institutions,
+            language=payload.language,
+            a_level_scheme=payload.a_level_scheme,
+        )
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"detail": str(exc)})
+    except Exception as exc:  # pragma: no cover
+        return JSONResponse(status_code=502, content={"detail": f"NECTA recommend failed: {exc}"})
+
+
+app.include_router(student_router)
+
+# region agent log
+try:
+    _routes_summary = [
+        {
+            "path": getattr(_rt, "path", str(_rt)),
+            "methods": sorted(list(getattr(_rt, "methods", []) or [])),
+            "name": getattr(_rt, "name", None),
+        }
+        for _rt in app.routes
+    ]
+    _debug_log(
+        "backend/app.py:include_router",
+        "all routes registered",
+        {
+            "count": len(_routes_summary),
+            "has_student_results_lookup": any(
+                r["path"] == "/student/results/lookup" for r in _routes_summary
+            ),
+            "routes": _routes_summary,
+        },
+        hypothesis_id="H1/H2/H3",
+    )
+except Exception as _exc:
+    _debug_log(
+        "backend/app.py:include_router",
+        "route summary log failed",
+        {"error": repr(_exc)},
+        hypothesis_id="H1/H2/H3",
+    )
+
+
+@app.middleware("http")
+async def _debug_request_middleware(request: Request, call_next):
+    response = await call_next(request)
+    # Only log writes / unusual statuses to avoid noise from static GETs.
+    if request.method != "GET" or response.status_code >= 400:
+        _debug_log(
+            "backend/app.py:middleware",
+            "request handled",
+            {
+                "method": request.method,
+                "path": request.url.path,
+                "query": str(request.url.query),
+                "status": response.status_code,
+                "client": getattr(request.client, "host", None),
+            },
+            hypothesis_id="H1/H4/H5",
+        )
+    return response
+# endregion
 

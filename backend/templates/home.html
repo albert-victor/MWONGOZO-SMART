@@ -2,7 +2,9 @@
 <html lang="sw">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#e8f2fb" />
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#07111f" />
   <title>Mwongozo Smart</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
   <style>
@@ -20,7 +22,7 @@
       --shadow:0 18px 40px rgba(15,23,42,.10);
     }
     *{box-sizing:border-box}
-    html{scroll-behavior:smooth}
+    html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}
     body{
       margin:0;
       font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
@@ -30,6 +32,9 @@
         radial-gradient(circle at bottom right, rgba(56,189,248,.08), transparent 24%),
         linear-gradient(180deg, #f8fbff 0%, var(--bg) 100%);
       color:var(--text);
+      min-height:100dvh;
+      padding:max(0px, env(safe-area-inset-top)) max(0px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(0px, env(safe-area-inset-left));
+      overflow-x:clip;
     }
     body[data-theme="light"]{
       --bg:#eef5fb;
@@ -61,7 +66,12 @@
         radial-gradient(circle at top right, rgba(103,232,249,.10), transparent 28%),
         linear-gradient(180deg, var(--bg) 0%, #091525 100%);
     }
-    .wrap{max-width:1180px;margin:0 auto;padding:22px}
+    .wrap{
+      max-width:min(1180px, 100%);
+      width:100%;
+      margin:0 auto;
+      padding:clamp(12px, 3.2vw, 22px) clamp(14px, 4vw, 28px) clamp(20px, 5vw, 36px);
+    }
     .hero,.card,.result-card{
       border:1px solid var(--line);
       box-shadow:var(--shadow);
@@ -69,39 +79,57 @@
     }
     .hero{
       position:relative;
-      border-radius:24px;
-      padding:24px;
+      border-radius:clamp(18px, 3vw, 24px);
+      padding:clamp(18px, 4vw, 28px) clamp(16px, 4vw, 28px) clamp(20px, 4vw, 28px);
       background:linear-gradient(135deg, rgba(255,255,255,.96), rgba(235,245,255,.90));
     }
     body[data-theme="dark"] .hero{background:linear-gradient(135deg, rgba(15,23,42,.96), rgba(8,47,73,.92));}
-    .hero h1{margin:0 0 8px;font-size:2.3rem;line-height:1.05}
-    .hero p{margin:0;max-width:940px;color:var(--muted);line-height:1.7}
+    .hero h1{
+      margin:0 0 10px;
+      padding-right:min(10rem, 38vw);
+      font-size:clamp(1.45rem, 0.6rem + 3.8vw, 2.35rem);
+      line-height:1.08;
+      letter-spacing:-0.02em;
+    }
+    .hero p{margin:0;max-width:62ch;color:var(--muted);line-height:1.72;font-size:clamp(.94rem, 0.35vw + 0.88rem, 1.05rem)}
     .pill-row{display:flex;flex-wrap:wrap;gap:10px;margin-top:16px}
     .pill{padding:8px 12px;border-radius:999px;background:rgba(14,165,233,.08);border:1px solid rgba(14,165,233,.14);color:var(--text)}
-    .layout{display:block;margin-top:18px}
+    .layout-block{margin-top:clamp(14px, 3vw, 22px)}
     .card{
-      border-radius:22px;
-      padding:18px;
+      border-radius:clamp(16px, 2.5vw, 22px);
+      padding:clamp(14px, 3.5vw, 22px);
       background:var(--panel);
     }
     .page-view{display:block}
     .page-view.hidden{display:none}
-    #resultsView{min-height:calc(100vh - 190px)}
-    .section-title{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:12px}
+    #resultsView{min-height:min(70dvh, calc(100dvh - 200px))}
+    .section-title{
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:12px 16px;
+      margin-bottom:14px;
+      flex-wrap:wrap;
+    }
+    .section-title .btn-group{margin-left:auto}
     .section-title h2,.section-title h3{margin:0}
     .muted{color:var(--muted)}
     .small{font-size:.92rem}
     .btn{
       border:0;
       border-radius:14px;
-      padding:12px 14px;
+      padding:12px 16px;
+      min-height:44px;
       font-weight:800;
+      font-size:clamp(.88rem, 0.2vw + 0.84rem, .95rem);
       cursor:pointer;
-      transition:transform .15s ease, opacity .15s ease;
+      transition:transform .15s ease, opacity .15s ease, box-shadow .15s ease;
       text-decoration:none;
       display:inline-flex;
       align-items:center;
       justify-content:center;
+      gap:8px;
+      touch-action:manipulation;
     }
     .btn:hover{transform:translateY(-1px);opacity:.98}
     .btn-primary{background:linear-gradient(135deg, #c8f4ff, #c8f7e0);color:#083344}
@@ -109,10 +137,9 @@
     body[data-theme="dark"] .btn-primary{background:linear-gradient(135deg, #06b6d4, #10b981);color:#06111b}
     body[data-theme="dark"] .btn-secondary{background:rgba(15,23,42,.94);color:var(--text);border:1px solid rgba(148,163,184,.20)}
     .btn-danger{background:rgba(127,29,29,.88);color:#fee2e2}
-    .btn-group{display:flex;gap:10px;flex-wrap:wrap}
-    .grid-2,.grid-3{display:grid;gap:14px}
-    .grid-2{grid-template-columns:repeat(2,minmax(0,1fr))}
-    .grid-3{grid-template-columns:repeat(3,minmax(0,1fr))}
+    .btn-group{display:flex;gap:10px;flex-wrap:wrap;align-items:stretch}
+    .btn-group .btn{flex:1 1 auto;min-width:min(100%, 160px)}
+    .grid-2,.grid-3{display:grid;gap:clamp(12px, 2vw, 16px);grid-template-columns:1fr}
     label{display:block;margin-bottom:8px}
     input,select{
       width:100%;
@@ -131,14 +158,22 @@
     .subject-list{display:grid;gap:10px;margin-top:12px}
     .subject-row{
       display:grid;
-      grid-template-columns:minmax(0,2fr) 92px 120px auto;
-      gap:10px;
+      grid-template-columns:minmax(0,2fr) minmax(72px,92px) minmax(100px,120px) auto;
+      gap:10px 12px;
       align-items:center;
       background:var(--panel-2);
       border:1px solid rgba(148,163,184,.15);
       border-radius:14px;
-      padding:10px;
+      padding:12px;
     }
+    .subject-row--extra .subject-name {
+      border-color: var(--warn);
+    }
+    .subject-row .subject-name{min-width:0}
+    .subject-row .remove-btn{min-width:88px;justify-self:end}
+    .option-row{display:flex;align-items:flex-start;gap:10px;margin-top:14px;padding:12px 14px;border-radius:14px;background:var(--panel-2);border:1px solid rgba(148,163,184,.14)}
+    .option-row input[type="checkbox"]{width:auto;min-width:18px;height:18px;margin-top:3px;accent-color:var(--accent);cursor:pointer}
+    .option-row label{cursor:pointer;font-weight:600;font-size:.92rem;line-height:1.45;margin:0}
     .action-row{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
     .results{display:grid;gap:14px;margin-top:14px}
     .table-shell{
@@ -149,10 +184,21 @@
       background:var(--panel);
       box-shadow:var(--shadow);
     }
+    .table-scroll{
+      overflow-x:auto;
+      -webkit-overflow-scrolling:touch;
+      overscroll-behavior-x:contain;
+      margin:0 -4px;
+      padding:4px;
+      scrollbar-gutter:stable;
+    }
     .results-table{
       width:100%;
       border-collapse:collapse;
-      min-width:980px;
+      min-width:min(100%, 720px);
+    }
+    @media (min-width: 900px){
+      .results-table{min-width:960px}
     }
     .results-table thead th{
       text-align:left;
@@ -199,19 +245,31 @@
     body[data-theme="light"] .pagination-bar{background:rgba(241,245,249,.96)}
     .table-toolbar{
       display:grid;
-      gap:10px;
-      grid-template-columns:1.4fr .8fr .8fr .8fr 1fr;
-      padding:14px 16px;
+      gap:12px;
+      grid-template-columns:repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+      padding:14px clamp(12px, 3vw, 18px);
       border-bottom:1px solid var(--line);
       background:rgba(148,163,184,.04);
     }
     .table-toolbar .field{margin:0}
     .table-toolbar label{margin-bottom:6px;font-size:.82rem}
     .table-toolbar input,.table-toolbar select{padding:10px 12px;border-radius:11px}
-    body[data-theme="light"] .table-toolbar{background:rgba(241,245,249,.88)}
-    @media (max-width: 860px){
-      .table-toolbar{grid-template-columns:1fr}
+    .advanced-filters{
+      margin:12px clamp(12px, 3vw, 18px) 16px;
+      padding:12px 14px;
+      border:1px solid var(--line);
+      border-radius:14px;
+      background:rgba(148,163,184,.04);
     }
+    .advanced-filters summary{
+      cursor:pointer;
+      font-weight:800;
+      color:var(--text);
+      list-style:none;
+    }
+    .advanced-filters summary::-webkit-details-marker{display:none}
+    .advanced-filters .field{margin-top:12px}
+    body[data-theme="light"] .table-toolbar{background:rgba(241,245,249,.88)}
     .result-card{
       background:linear-gradient(180deg, rgba(255,255,255,.96), rgba(243,247,251,.96));
       border-radius:18px;
@@ -220,7 +278,8 @@
     }
     body[data-theme="dark"] .result-card{background:linear-gradient(180deg, rgba(15,23,42,.92), rgba(2,6,23,.96))}
     .review-card{border-color:rgba(251,191,36,.28);box-shadow:0 16px 32px rgba(251,191,36,.08)}
-    .result-head{display:flex;justify-content:space-between;align-items:center;gap:12px}
+    .result-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
+    .result-head .confidence{flex-shrink:0;align-self:center}
     .rank{
       min-width:42px;height:42px;display:grid;place-items:center;
       border-radius:12px;background:rgba(52,211,153,.10);color:var(--accent-2);font-weight:800
@@ -245,10 +304,19 @@
       color:#b91c1c;
     }
     .meta-grid{
-      display:grid;gap:8px;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));
-      margin-top:12px;font-size:.92rem
+      display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(min(100%, 148px),1fr));
+      margin-top:12px;font-size:clamp(.86rem, 0.25vw + 0.82rem, .94rem)
     }
     .footer-note{margin-top:12px;color:var(--muted);font-size:.92rem}
+    .necta-lookup{
+      margin-top:clamp(14px,3vw,20px);
+      padding:clamp(14px,3vw,18px);
+      border-radius:clamp(14px,2vw,18px);
+      border:1px solid var(--line);
+      background:var(--panel-2);
+    }
+    .necta-lookup .section-title{margin-bottom:12px}
+    #nectaLookupWrap.hidden{display:none !important}
     .chip-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
     .chip{
       display:inline-flex;
@@ -343,7 +411,8 @@
     }
     body[data-theme="light"] details.readmore summary{color:#0369a1}
     details.readmore{margin-top:10px}
-    details.readmore summary{cursor:pointer;font-weight:700;color:#c7f9ff}
+    details.readmore summary{cursor:pointer;font-weight:700;color:var(--accent)}
+    body[data-theme="dark"] details.readmore summary{color:#c7f9ff}
     .icon{margin-right:8px}
     .combo-grid{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));margin-top:14px}
     .combo-card{
@@ -357,19 +426,77 @@
     .combo-title{display:flex;align-items:center;justify-content:space-between;gap:10px;font-weight:800}
     .combo-code{padding:5px 9px;border-radius:999px;background:rgba(14,165,233,.10);color:var(--accent);font-size:.8rem;font-weight:800}
     .combo-soft{color:var(--muted);font-size:.9rem;line-height:1.5;margin-top:6px}
-    .theme-toggle{position:absolute;top:18px;right:18px}
-    @media (max-width: 980px){
-      .grid-2,.grid-3{grid-template-columns:1fr}
-      .subject-row{grid-template-columns:1fr 1fr}
-      .theme-toggle{position:static;margin-top:14px}
+    .theme-toggle{position:absolute;top:max(14px, env(safe-area-inset-top));right:max(14px, env(safe-area-inset-right));z-index:2}
+    .field label{font-weight:600;font-size:.9rem;color:var(--text)}
+    @media (max-width: 640px){
+      .hero h1{padding-right:0}
+      .theme-toggle{position:static;margin:12px 0 0;width:100%;max-width:100%;justify-content:center}
+      .pill-row{gap:8px}
+      .pill{font-size:.82rem;padding:7px 10px}
+      .section-title{flex-direction:column;align-items:stretch}
+      .section-title .btn-group{width:100%}
+      .section-title .btn-group .btn{min-width:0;flex:1 1 100%}
+      .action-row .btn{flex:1 1 100%;min-width:0}
+      .subject-row{
+        grid-template-columns:1fr 1fr;
+        grid-template-areas:
+          "subj subj"
+          "grade model"
+          "remove remove";
+      }
+      .subject-row .subject-name{grid-area:subj}
+      .subject-row .subject-grade{grid-area:grade}
+      .subject-row .subject-model{grid-area:model}
+      .subject-row .remove-btn{grid-area:remove;width:100%;justify-self:stretch}
+      .combo-grid{grid-template-columns:1fr}
+    }
+    @media (min-width: 641px) and (max-width: 900px){
+      .subject-row{grid-template-columns:1fr minmax(80px,1fr) minmax(100px,1fr) auto}
+    }
+    @media (min-width: 901px){
+      .grid-2{grid-template-columns:repeat(2,minmax(0,1fr))}
+      .grid-3{grid-template-columns:repeat(3,minmax(0,1fr))}
+    }
+    @media (max-width: 720px){
+      .table-shell .results-table thead{display:none}
+      .table-shell .results-table tbody tr{
+        display:flex;
+        flex-direction:column;
+        gap:2px;
+        margin-bottom:14px;
+        padding:14px 14px 12px;
+        border:1px solid var(--line);
+        border-radius:16px;
+        background:var(--panel-2);
+        box-shadow:0 4px 14px rgba(15,23,42,.06);
+      }
+      body[data-theme="dark"] .table-shell .results-table tbody tr{background:rgba(15,23,42,.75)}
+      .table-shell .results-table tbody td{
+        display:block;
+        border:0;
+        padding:6px 0;
+        vertical-align:top;
+      }
+      .table-shell .results-table tbody td:nth-child(2){order:1;padding-top:0}
+      .table-shell .results-table tbody td:nth-child(1){order:2;border-top:1px dashed rgba(148,163,184,.2);padding-top:10px;margin-top:4px}
+      .table-shell .results-table tbody td:nth-child(3){order:3;display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+      .table-shell .results-table tbody td:nth-child(3)::before{content:"Confidence: ";font-weight:700;font-size:.8rem;color:var(--muted)}
+      .table-shell .results-table tbody td:nth-child(4){order:4;font-size:.9rem}
+      .table-shell .results-table tbody td:nth-child(4)::before{content:"Insight · ";font-weight:700;color:var(--muted);font-size:.78rem;display:block;margin-bottom:4px}
+      .table-shell .results-table tbody td:nth-child(5){order:5;font-size:.88rem}
+      .table-shell .results-table tbody td:nth-child(5)::before{content:"Category: ";font-weight:600;color:var(--muted);font-size:.78rem;margin-right:6px}
+      .table-shell .results-table tbody td:nth-child(6){order:6;border-top:1px dashed rgba(148,163,184,.2);padding-top:10px;margin-top:4px}
+      .table-scroll{margin:0;padding:0}
+      .pagination-bar{flex-direction:column;align-items:stretch;text-align:center}
+      .pagination-controls{justify-content:center}
     }
   </style>
 </head>
 <body>
   <div class="wrap">
     <section class="hero">
-      <button type="button" class="btn btn-secondary theme-toggle" id="themeToggle"><i class="fa-solid fa-circle-half-stroke icon"></i><span id="themeLabel">Light mode</span></button>
       <h1><i class="fa-solid fa-compass icon"></i>Mwongozo Smart</h1>
+      <button type="button" class="btn btn-secondary theme-toggle" id="themeToggle" aria-label="Badilisha muonekano"><i class="fa-solid fa-circle-half-stroke icon" aria-hidden="true"></i><span id="themeLabel">Light mode</span></button>
       <p>Chagua level, jaza matokeo yako, kisha bonyeza <strong>Pata Recommendations</strong>. Mfumo utaonyesha programme zinazokaribia eligibility yako, pamoja na sababu za kuchaguliwa, borderline options, na njia mbadala zinazofanana.</p>
       <div class="pill-row">
         <span class="pill">Step 1: select level</span>
@@ -389,11 +516,33 @@
           <button type="button" class="btn btn-primary" data-pathway-button="o_level"><i class="fa-solid fa-graduation-cap icon"></i>Form 4 / O-Level</button>
           <button type="button" class="btn btn-primary" data-pathway-button="a_level"><i class="fa-solid fa-book-open icon"></i>Form 6 / A-Level</button>
         </div>
-        <p class="footer-note">Chagua level kwanza. Kisha form husika itaonekana tu.</p>
+        <p class="footer-note">Chagua level, kisha unaweza <strong>chagua mwaka na nambari ya mtihani</strong> ili kupakia matokeo kutoka NECTA moja kwa moja, au jaza fomu kwa mkono.</p>
 
         <form id="recommendForm">
           <input type="hidden" id="pathway" name="pathway" value="" />
           <div id="levelPrompt" class="success">Bonyeza <strong>Form 4</strong> au <strong>Form 6</strong> ili uanze.</div>
+
+          <div id="nectaLookupWrap" class="necta-lookup hidden" aria-live="polite">
+            <div class="section-title" style="margin-bottom:10px;">
+              <h3 style="font-size:1.05rem;">Angalia matokeo NECTA</h3>
+              <span class="muted small">Mwaka wa mtihani + nambari yako</span>
+            </div>
+            <p class="small muted" id="nectaIndexHint" style="margin-top:0;margin-bottom:12px;"></p>
+            <div class="grid-2">
+              <div class="field">
+                <label for="nectaExamYear">Mwaka alio maliza shule</label>
+                <select id="nectaExamYear" name="necta_exam_year"></select>
+              </div>
+              <div class="field">
+                <label for="nectaIndexNo">Nambari ya mtihani (CNO)</label>
+                <input type="text" id="nectaIndexNo" name="necta_index" autocomplete="off" placeholder="S1027-0034" />
+              </div>
+            </div>
+            <div class="action-row" style="margin-top:4px;">
+              <button type="button" class="btn btn-secondary" id="nectaFetchBtn"><i class="fa-solid fa-cloud-arrow-down icon"></i>Pakua matokeo kutoka NECTA</button>
+            </div>
+            <div id="nectaLookupMsg" class="footer-note" style="margin-top:10px;"></div>
+          </div>
 
           <div id="aLevelSection" class="hidden">
             <div class="section-title" style="margin-top:16px;">
@@ -454,6 +603,12 @@
             </div>
           </div>
 
+          <div id="formRecommendStatus" class="layout-block" style="margin-top:14px;" aria-live="polite"></div>
+          <div class="option-row">
+            <input type="checkbox" id="resultsAfterFetchOnly" checked />
+            <label for="resultsAfterFetchOnly">Onyeshe skrini ya matokeo tu baada ya kutafuta kumalika — baki kwenye fomu hadi majibu ya server yapatikane.</label>
+          </div>
+
           <div class="action-row" style="margin-top:18px;">
             <button type="submit" class="btn btn-primary"><i class="fa-solid fa-magnifying-glass icon"></i>Pata Recommendations</button>
             <button type="button" class="btn btn-secondary" id="loadExample"><i class="fa-solid fa-wand-magic-sparkles icon"></i>Load example</button>
@@ -463,7 +618,7 @@
       </div>
     </section>
 
-    <section id="resultsView" class="page-view hidden" style="margin-top:18px;">
+    <section id="resultsView" class="page-view hidden layout-block">
       <div class="card">
         <div class="section-title">
           <h2>Matokeo</h2>
@@ -499,6 +654,170 @@
     const combinationInput = document.getElementById("combination");
     const themeToggle = document.getElementById("themeToggle");
     const themeLabel = document.getElementById("themeLabel");
+    const nectaLookupWrap = document.getElementById("nectaLookupWrap");
+    const nectaExamYear = document.getElementById("nectaExamYear");
+    const nectaIndexNo = document.getElementById("nectaIndexNo");
+    const nectaIndexHint = document.getElementById("nectaIndexHint");
+    const nectaLookupMsg = document.getElementById("nectaLookupMsg");
+    const nectaFetchBtn = document.getElementById("nectaFetchBtn");
+    const formRecommendStatus = document.getElementById("formRecommendStatus");
+    const resultsAfterFetchOnly = document.getElementById("resultsAfterFetchOnly");
+
+    function shouldDeferResultsView() {
+      return Boolean(resultsAfterFetchOnly && resultsAfterFetchOnly.checked);
+    }
+
+    function initResultsDisplayPreference() {
+      if (!resultsAfterFetchOnly) return;
+      const saved = localStorage.getItem("mwongozo-results-after-fetch");
+      if (saved === "0") resultsAfterFetchOnly.checked = false;
+      else if (saved === "1") resultsAfterFetchOnly.checked = true;
+      resultsAfterFetchOnly.addEventListener("change", () => {
+        localStorage.setItem("mwongozo-results-after-fetch", resultsAfterFetchOnly.checked ? "1" : "0");
+      });
+    }
+
+    /** NECTA lookup: CSEE (Form 4) vs ACSEE (Form 6) supported year ranges in UI */
+    const NECTA_LOOKUP_YEAR_MAX = 2025;
+    const NECTA_CSEE_YEAR_MIN = 2003;
+    const NECTA_ACSEE_YEAR_MIN = 2005;
+
+    function refreshNectaYearSelect(pathway) {
+      if (!nectaExamYear) return;
+      const previous = parseInt(nectaExamYear.value, 10);
+      nectaExamYear.innerHTML = "";
+      let yMin;
+      const yMax = NECTA_LOOKUP_YEAR_MAX;
+      if (pathway === "o_level") {
+        yMin = NECTA_CSEE_YEAR_MIN;
+      } else if (pathway === "a_level") {
+        yMin = NECTA_ACSEE_YEAR_MIN;
+      } else {
+        return;
+      }
+      for (let y = yMax; y >= yMin; y--) {
+        const opt = document.createElement("option");
+        opt.value = String(y);
+        opt.textContent = String(y);
+        nectaExamYear.appendChild(opt);
+      }
+      const keep =
+        Number.isFinite(previous) && previous >= yMin && previous <= yMax ? previous : yMax;
+      nectaExamYear.value = String(keep);
+    }
+
+    function formatApiError(data) {
+      if (!data) return "Hitilafu isiyojulikana";
+      const d = data.detail;
+      if (typeof d === "string") return d;
+      if (Array.isArray(d)) return d.map((x) => (x.msg ? x.msg : JSON.stringify(x))).join("; ");
+      try {
+        return JSON.stringify(data);
+      } catch (e) {
+        return "Request failed";
+      }
+    }
+
+    async function fetchNectaOfficialResults() {
+      if (!nectaFetchBtn || !nectaLookupMsg) return;
+      const pathway = pathwayInput.value;
+      if (!pathway || (pathway !== "o_level" && pathway !== "a_level")) {
+        nectaLookupMsg.innerHTML = '<div class="warning">Chagua Form 4 au Form 6 kwanza.</div>';
+        return;
+      }
+      const year = parseInt(nectaExamYear.value, 10);
+      const candidate = nectaIndexNo.value.trim();
+      if (!candidate) {
+        nectaLookupMsg.innerHTML = '<div class="warning">Weka nambari ya mtihani (CNO).</div>';
+        return;
+      }
+      nectaLookupMsg.innerHTML = '<div class="muted">Inapakia matokeo (NECTA / TETEA)...</div>';
+      nectaFetchBtn.disabled = true;
+      try {
+        const isCsee = pathway === "o_level";
+        const url = "/student/results/lookup";
+        const body = {
+          exam_type: isCsee ? "csee" : "acsee",
+          year,
+          candidate_number: candidate,
+          skip_cache: false,
+        };
+        // #region agent log
+        fetch('http://127.0.0.1:7344/ingest/97d626da-5fd1-4f14-80d7-3c6bd29c5f52', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '4a10e1' },
+          body: JSON.stringify({
+            sessionId: '4a10e1',
+            location: 'home.html:fetchNectaOfficialResults:before',
+            message: 'about to POST lookup',
+            hypothesisId: 'H1/H4/H5',
+            data: {
+              page_origin: location.origin,
+              page_href: location.href,
+              relative_url: url,
+              absolute_url: new URL(url, location.href).toString(),
+              body,
+            },
+            timestamp: Date.now(),
+          }),
+        }).catch(() => {});
+        // #endregion
+        const response = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        // #region agent log
+        fetch('http://127.0.0.1:7344/ingest/97d626da-5fd1-4f14-80d7-3c6bd29c5f52', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '4a10e1' },
+          body: JSON.stringify({
+            sessionId: '4a10e1',
+            location: 'home.html:fetchNectaOfficialResults:after',
+            message: 'lookup response received',
+            hypothesisId: 'H1/H4/H5',
+            data: {
+              ok: response.ok,
+              status: response.status,
+              response_url: response.url,
+              relative_url: url,
+            },
+            timestamp: Date.now(),
+          }),
+        }).catch(() => {});
+        // #endregion
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(formatApiError(data));
+        const input = data.student_input;
+        if (!input) throw new Error("Majibu ya server hayajafanana na matarajio.");
+        populateFromPayload(input);
+        const rec = data.record || {};
+        if (isCsee && rec.division) {
+          const div = String(rec.division).toUpperCase();
+          const allowed = ["I", "II", "III", "IV"];
+          if (allowed.includes(div)) document.getElementById("division").value = div;
+        }
+        const school = rec.school_name || "";
+        const cno = rec.candidate_number || candidate.toUpperCase();
+        const divLine = rec.division ? ` · Division ${rec.division}` : "";
+        const cp = data.calculated_points || {};
+        const ptsNum = isCsee ? cp.total_grade_points : cp.principal_points;
+        const ptsLabel = isCsee ? "jumla alama (O-Level)" : "TCU points (makadirio)";
+        const pts = typeof ptsNum === "number" ? ` · ${ptsLabel}: ${ptsNum}` : "";
+        const src = rec.data_source ? ` · Chanzo: ${rec.data_source}` : "";
+        nectaLookupMsg.innerHTML = `<div class="success"><strong>Imepakiwa.</strong> ${school ? school + " · " : ""}${cno}${divLine}${pts}${src}</div>`;
+        if (formRecommendStatus) {
+          formRecommendStatus.innerHTML =
+            '<div class="success small">Masomo yamejazwa kwenye fomu. Unaweza kuondoa au kubadilisha safu; kisha bonyeza <strong>Pata Recommendations</strong>.</div>';
+        }
+        const targetSection = pathway === "o_level" ? oLevelSection : aLevelSection;
+        if (targetSection) targetSection.scrollIntoView({ behavior: "smooth", block: "start" });
+      } catch (err) {
+        nectaLookupMsg.innerHTML = `<div class="error">${err.message || "Imeshindikana"}</div>`;
+      } finally {
+        if (nectaFetchBtn) nectaFetchBtn.disabled = false;
+      }
+    }
 
     function setTheme(theme) {
       const nextTheme = theme === "light" ? "light" : "dark";
@@ -519,19 +838,40 @@
       window.scrollTo({ top: 0, behavior: "smooth" });
     }
 
+    function escapeHtmlAttr(value) {
+      return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/"/g, "&quot;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    }
+
     function subjectRow(preset = {}, level = "a") {
       const catalog = level === "o" ? oLevelSubjectsCatalog : subjectCatalog;
-      const gradeHtml = gradeOptions.map(g => `<option value="${g}" ${preset.grade === g ? "selected" : ""}>${g === "" ? "--" : g}</option>`).join("");
+      const want = (preset.subject || "").trim();
+      const inCatalog = want && catalog.includes(want);
+      let subjectOptions = catalog.map((s) => `<option value="${escapeHtmlAttr(s)}" ${want === s ? "selected" : ""}>${escapeHtmlAttr(s)}</option>`).join("");
+      if (want && !inCatalog) {
+        const label = `${want} (kutoka matokeo)`;
+        subjectOptions = `<option value="${escapeHtmlAttr(want)}" selected>${escapeHtmlAttr(label)}</option>` + subjectOptions;
+      }
+      let grades = gradeOptions.slice();
+      const g = (preset.grade || "").trim();
+      if (g && !grades.includes(g)) grades = [...grades, g];
+      const gradeHtml = grades.map((opt) => `<option value="${escapeHtmlAttr(opt)}" ${g === opt ? "selected" : ""}>${opt === "" ? "--" : escapeHtmlAttr(opt)}</option>`).join("");
+      const principalVal = preset.principal === false ? "0" : "1";
+      const elective = preset.model === "elective" || preset.principal === false;
       const wrapper = document.createElement("div");
-      wrapper.className = "subject-row";
+      wrapper.className = "subject-row" + (want && !inCatalog ? " subject-row--extra" : "");
+      wrapper.dataset.principal = principalVal;
       wrapper.innerHTML = `
-        <select class="subject-name">${catalog.map(s => `<option value="${s}" ${preset.subject === s ? "selected" : ""}>${s}</option>`).join("")}</select>
+        <select class="subject-name">${subjectOptions}</select>
         <select class="subject-grade">${gradeHtml}</select>
         <select class="subject-model">
-          <option value="core" ${preset.model !== "elective" ? "selected" : ""}>Core</option>
-          <option value="elective" ${preset.model === "elective" ? "selected" : ""}>Elective</option>
+          <option value="core" ${!elective ? "selected" : ""}>Core</option>
+          <option value="elective" ${elective ? "selected" : ""}>Elective</option>
         </select>
-        <button type="button" class="btn btn-danger remove-btn">Remove</button>
+        <button type="button" class="btn btn-danger remove-btn">Ondoa</button>
       `;
       wrapper.querySelector(".remove-btn").addEventListener("click", () => wrapper.remove());
       return wrapper;
@@ -576,15 +916,28 @@
       pathwayButtons.forEach(btn => btn.classList.remove("active"));
       const active = [...pathwayButtons].find(btn => btn.dataset.pathwayButton === pathway);
       if (active) active.classList.add("active");
+      if (nectaLookupWrap) {
+        nectaLookupWrap.classList.remove("hidden");
+        nectaLookupMsg.innerHTML = "";
+        if (pathway === "o_level") {
+          nectaIndexHint.textContent = "Form 4 (CSEE): weka nambari ya mwanafunzi kama S1027-0034 (kituo + nambari).";
+          nectaIndexNo.placeholder = "S1027-0034";
+        } else if (pathway === "a_level") {
+          nectaIndexHint.textContent = "Form 6 (ACSEE): weka nambari ya mwanafunzi kama S0140-0538 (kituo + nambari).";
+          nectaIndexNo.placeholder = "S0140-0538";
+        }
+      }
       if (pathway === "a_level") aLevelSection.classList.remove("hidden");
       if (pathway === "o_level") {
         oLevelSection.classList.remove("hidden");
         if (!oLevelContainer.children.length) ensureDefaultRows();
       }
+      refreshNectaYearSelect(pathway);
     }
 
     function populateFromPayload(payload) {
-      setPathway(payload.pathway || "a_level");
+      const pathway = payload.pathway || "a_level";
+      setPathway(pathway);
       document.getElementById("a_level_scheme").value = payload.a_level_scheme || "2016_plus";
       document.getElementById("combination").value = payload.combination || "";
       document.getElementById("language").value = payload.language || "both";
@@ -593,20 +946,26 @@
       document.getElementById("result_model").value = "standard";
       aLevelContainer.innerHTML = "";
       oLevelContainer.innerHTML = "";
-      (payload.a_level_subjects || []).forEach(item => aLevelContainer.appendChild(subjectRow(item, "a")));
-      (payload.o_level_subjects || []).forEach(item => oLevelContainer.appendChild(subjectRow(item, "o")));
-      ensureDefaultRows();
-      if (payload.combination) setAlevelByCombination(payload.combination);
+      (payload.a_level_subjects || []).forEach((item) => aLevelContainer.appendChild(subjectRow(item, "a")));
+      (payload.o_level_subjects || []).forEach((item) => oLevelContainer.appendChild(subjectRow(item, "o")));
+      if (pathway === "a_level" && !aLevelContainer.children.length) {
+        setAlevelByCombination(combinationInput.value || "PCB");
+      }
+      if (pathway === "o_level" && !oLevelContainer.children.length) {
+        defaultOLevelSubjects.forEach((subject) => oLevelContainer.appendChild(subjectRow({ subject, grade: "", model: "core" }, "o")));
+      }
+      // Do not call setAlevelByCombination when subjects came from API — it would wipe this list.
     }
 
     function buildPayload() {
       const pathway = pathwayInput.value || "a_level";
-      const readSubjects = (container, level) => Array.from(container.querySelectorAll(".subject-row")).map(row => ({
-        subject: row.querySelector(".subject-name").value,
-        grade: row.querySelector(".subject-grade").value,
-        principal: true,
-        level,
-      }));
+      const readSubjects = (container, level) =>
+        Array.from(container.querySelectorAll(".subject-row")).map((row) => ({
+          subject: row.querySelector(".subject-name").value,
+          grade: row.querySelector(".subject-grade").value,
+          principal: row.dataset.principal !== "0",
+          level,
+        }));
       return {
         pathway,
         a_level_scheme: document.getElementById("a_level_scheme").value,
@@ -713,9 +1072,18 @@
 
     document.getElementById("recommendForm").addEventListener("submit", async (event) => {
       event.preventDefault();
-      resultSummaryEl.innerHTML = `<div class="muted">Ina-load recommendations...</div>`;
-      resultsEl.innerHTML = "";
-      showResultsView();
+      const defer = shouldDeferResultsView();
+      if (defer) {
+        if (formRecommendStatus) formRecommendStatus.innerHTML = `<div class="muted">Ina-load recommendations...</div>`;
+        resultSummaryEl.innerHTML = "";
+        resultsEl.innerHTML = "";
+        showInputView();
+      } else {
+        if (formRecommendStatus) formRecommendStatus.innerHTML = "";
+        resultSummaryEl.innerHTML = `<div class="muted">Ina-load recommendations...</div>`;
+        resultsEl.innerHTML = "";
+        showResultsView();
+      }
       try {
         const response = await fetch("/recommend", {
           method: "POST",
@@ -724,13 +1092,22 @@
         });
         const data = await response.json();
         if (!response.ok) throw new Error(data.detail || "Request failed");
+        if (defer && formRecommendStatus) formRecommendStatus.innerHTML = "";
         renderRecommendations(data);
       } catch (error) {
-        resultSummaryEl.innerHTML = `<div class="error">${error.message}</div>`;
+        if (defer) {
+          if (formRecommendStatus) formRecommendStatus.innerHTML = `<div class="error">${error.message}</div>`;
+          showInputView();
+        } else {
+          resultSummaryEl.innerHTML = `<div class="error">${error.message}</div>`;
+        }
       }
     });
 
     pathwayButtons.forEach(button => button.addEventListener("click", () => setPathway(button.dataset.pathwayButton)));
+    if (nectaFetchBtn) {
+      nectaFetchBtn.addEventListener("click", () => fetchNectaOfficialResults());
+    }
     document.querySelector('[data-add-subject="a"]').addEventListener("click", () => aLevelContainer.appendChild(subjectRow({}, "a")));
     document.querySelector('[data-add-subject="o"]').addEventListener("click", () => oLevelContainer.appendChild(subjectRow({}, "o")));
     document.getElementById("combination").addEventListener("change", () => {
@@ -750,6 +1127,12 @@
       levelPrompt.classList.remove("hidden");
       aLevelSection.classList.add("hidden");
       oLevelSection.classList.add("hidden");
+      pathwayButtons.forEach(btn => btn.classList.remove("active"));
+      if (nectaLookupWrap) nectaLookupWrap.classList.add("hidden");
+      if (nectaLookupMsg) nectaLookupMsg.innerHTML = "";
+      if (nectaIndexNo) nectaIndexNo.value = "";
+      if (nectaExamYear) nectaExamYear.innerHTML = "";
+      if (formRecommendStatus) formRecommendStatus.innerHTML = "";
       resultSummaryEl.innerHTML = '<div class="muted">Form imeclear. Chagua level kisha ujaze matokeo.</div>';
       resultsEl.innerHTML = "";
       showInputView();
@@ -765,6 +1148,7 @@
     levelPrompt.classList.remove("hidden");
     setTheme(localStorage.getItem("mwongozo-theme") || "dark");
     showInputView();
+    initResultsDisplayPreference();
   </script>
   <script>
     // Override the earlier renderer with the cleaner card layout used by the new results page.
@@ -884,7 +1268,7 @@
             <strong>${title}</strong>
             <span class="muted small">${items.length} row(s)</span>
           </div>
-          <div style="overflow-x:auto;">
+          <div class="table-scroll" role="region" aria-label="Jedwali la matokeo">
             <table class="results-table">
               <thead>
                 <tr>
@@ -996,7 +1380,7 @@
             <strong>Recommendations</strong>
             <span class="muted small">Direct: ${resultsPagination.directCount} | Borderline: ${resultsPagination.reviewCount}</span>
           </div>
-          <div style="overflow-x:auto;">
+          <div class="table-scroll" role="region" aria-label="Jedwali la matokeo">
             <table class="results-table">
               <thead>
                 <tr>
@@ -1195,10 +1579,6 @@
           </div>
           <div class="table-toolbar">
             <div class="field">
-              <label for="resultsSearch">Search</label>
-              <input id="resultsSearch" type="search" placeholder="Search chuo, course, mkoa, category..." value="${resultsPagination.filters?.query || ""}" />
-            </div>
-            <div class="field">
               <label for="resultsRegionFilter">Mkoa</label>
               <select id="resultsRegionFilter">
                 <option value="all">All regions</option>
@@ -1213,14 +1593,21 @@
               </select>
             </div>
             <div class="field">
-              <label for="resultsSortFilter">Sort</label>
+              <label for="resultsSortFilter">Confidence</label>
               <select id="resultsSortFilter">
                 <option value="confidence_desc" ${(resultsPagination.filters?.sort || "confidence_desc") === "confidence_desc" ? "selected" : ""}>Confidence: high to low</option>
                 <option value="confidence_asc" ${(resultsPagination.filters?.sort || "confidence_desc") === "confidence_asc" ? "selected" : ""}>Confidence: low to high</option>
               </select>
             </div>
+          </div>
+          <details class="advanced-filters">
+            <summary>Advanced filters</summary>
             <div class="field">
-              <label>Quick filters</label>
+              <label for="resultsSearch">Search</label>
+              <input id="resultsSearch" type="search" placeholder="Search chuo, course, mkoa, category..." value="${resultsPagination.filters?.query || ""}" />
+            </div>
+            <div class="field">
+              <label>Quick course categories</label>
               <div class="btn-group">
                 <button type="button" class="btn btn-secondary" data-quick-category="all">All</button>
                 <button type="button" class="btn btn-secondary" data-quick-category="health">Health</button>
@@ -1228,8 +1615,8 @@
                 <button type="button" class="btn btn-secondary" data-quick-category="law">Law</button>
               </div>
             </div>
-          </div>
-          <div style="overflow-x:auto;">
+          </details>
+          <div class="table-scroll" role="region" aria-label="Jedwali la matokeo">
             <table class="results-table">
               <thead>
                 <tr>

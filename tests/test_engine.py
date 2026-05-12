@@ -18,6 +18,23 @@ def test_engine_returns_ranked_recommendations():
     assert recommendations[0].assessment.confidence >= recommendations[-1].assessment.confidence
 
 
+def test_o_level_recommendations_rank_by_confidence_and_use_csee_points():
+    student = StudentResult(
+        pathway=AdmissionPathway.O_LEVEL,
+        o_level_subjects=[
+            SubjectGrade(subject="Mathematics", grade="B", level="o_level"),
+            SubjectGrade(subject="English Language", grade="B", level="o_level"),
+            SubjectGrade(subject="Biology", grade="B", level="o_level"),
+            SubjectGrade(subject="Chemistry", grade="B", level="o_level"),
+            SubjectGrade(subject="Physics", grade="C", level="o_level"),
+        ],
+    )
+    recommendations = RecommendationEngine().recommend(student, limit=100)
+    assert len(recommendations) >= 8
+    assert recommendations[0].assessment.confidence >= recommendations[-1].assessment.confidence
+    assert recommendations[0].student_points > 0
+
+
 def test_engine_suggests_combination_paths():
     student = StudentResult(
         pathway=AdmissionPathway.A_LEVEL,
