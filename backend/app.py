@@ -5,6 +5,7 @@ from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, FastAPI, HTTPException, Query, Request
+from fastapi.staticfiles import StaticFiles
 
 # region agent log
 def _debug_log(location: str, message: str, data: dict | None = None, hypothesis_id: str = "H1") -> None:
@@ -1093,6 +1094,10 @@ async def student_acsee_recommend(payload: AcseeRecommendRequest) -> dict[str, o
 
 
 app.include_router(student_router)
+
+_STATIC_DIR = Path(__file__).resolve().parent / "static"
+if _STATIC_DIR.is_dir():
+    app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
 # region agent log
 try:
