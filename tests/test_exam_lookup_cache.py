@@ -34,3 +34,39 @@ def test_cache_upsert_school_links(tmp_path: Path) -> None:
     rows = cache.list_school_links(2022)
     assert len(rows) == 1
     assert rows[0].center_number == "P0101"
+
+
+def test_csee_lookup_falls_back_to_cache_on_network_error(tmp_path: Path) -> None:
+    import asyncio
+    from unittest.mock import AsyncMock, patch
+
+    import httpx
+
+    from mwongozo_smart.exam_lookup.result_service import CseeResultService
+
+    db = tmp_path / "csee.sqlite3"
+    cache = NectaLookupCache(db_path=db)
+    stored = NectaCseeResult(
+        exam_year=2024,
+        candidate_number="S0140/0012",
+        school_name="DEMO SCHOOL",
+        center_number="S0140",
+        division="II",
+        subjects=[NectaSubjectGrade(code="PHY", name="Physics", grade="B")],
+        source_url="https://example.invalid/demo.htm",
+        data_source="necta_onlinesys",
+    )
+    cache.put_result(2024, "S0140/0012", stored)
+    service = CseeResultService(cache=cache)
+
+    async def run() -> NectaCseeResult:
+        with (
+            patch.object(service, "year_is_available", new=AsyncMock(return_value=True)),
+            patch.object(service._crawler, "fetch_text_first_ok", new=AsyncMock(side_effect=httpx.ConnectError("offline"))),
+        ):
+            return await service.lookup(2024, "S0140/0012", skip_cache=True)
+
+    loaded = asyncio.run(run())
+    assert loaded.retrieved_via_cache_fallback is True
+    assert loaded.candidate_number == "S0140/0012"
+    assert loaded.division == "II"

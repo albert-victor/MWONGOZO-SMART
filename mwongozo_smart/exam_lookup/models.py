@@ -44,6 +44,10 @@ class NectaCseeResult(BaseModel):
         default="necta_onlinesys",
         description="Origin label, e.g. necta_onlinesys or tetea_maktaba.",
     )
+    retrieved_via_cache_fallback: bool = Field(
+        default=False,
+        description="True when live scrape failed and a prior cached lookup was returned.",
+    )
 
     @field_validator("candidate_number", "center_number")
     @classmethod
@@ -72,6 +76,10 @@ class NectaAcseeResult(BaseModel):
         default="necta_onlinesys",
         description="necta_onlinesys or tetea_maktaba",
     )
+    retrieved_via_cache_fallback: bool = Field(
+        default=False,
+        description="True when live scrape failed and a prior cached lookup was returned.",
+    )
 
     @field_validator("candidate_number", "center_number")
     @classmethod
@@ -83,7 +91,7 @@ class StudentLookupRequest(BaseModel):
     year: int = Field(ge=1990, le=2100)
     candidate_number: str = Field(min_length=4, max_length=32)
     include_recommendations: bool = False
-    recommend_limit: int = Field(default=80, ge=1, le=200)
+    recommend_limit: int = Field(default=120, ge=1, le=250)
 
     @field_validator("candidate_number")
     @classmethod
@@ -127,7 +135,7 @@ class StudentResultsLookupRequest(BaseModel):
 
 
 class StudentResultsRecommendRequest(StudentResultsLookupRequest):
-    recommend_limit: int = Field(default=80, ge=1, le=200)
+    recommend_limit: int = Field(default=120, ge=1, le=250)
     preferred_regions: list[str] = Field(default_factory=list)
     preferred_institutions: list[str] = Field(default_factory=list)
     language: str = "english"

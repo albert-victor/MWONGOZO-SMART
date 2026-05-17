@@ -6,27 +6,6 @@ from pathlib import Path
 import httpx
 from fastapi import APIRouter, FastAPI, HTTPException, Query, Request
 from fastapi.staticfiles import StaticFiles
-
-# region agent log
-def _debug_log(location: str, message: str, data: dict | None = None, hypothesis_id: str = "H1") -> None:
-    """Append one NDJSON entry to debug-4a10e1.log (debug mode instrumentation)."""
-    try:
-        import time as _t
-        log_path = Path(__file__).resolve().parent.parent / "debug-4a10e1.log"
-        entry = {
-            "sessionId": "4a10e1",
-            "id": f"log_{int(_t.time() * 1000)}_{location}",
-            "timestamp": int(_t.time() * 1000),
-            "location": location,
-            "message": message,
-            "data": data or {},
-            "hypothesisId": hypothesis_id,
-        }
-        with log_path.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(entry, default=str) + "\n")
-    except Exception:
-        pass
-# endregion
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 
@@ -48,6 +27,7 @@ from mwongozo_smart.exam_lookup.acsee_service import (
     necta_acsee_to_student_result,
     student_result_to_api_input,
 )
+from mwongozo_smart.loan_tracking import build_loan_tracking, list_demo_references, normalize_heslb_ref
 from mwongozo_smart.utils.combination_helper import COMBINATION_MAP
 
 
@@ -57,15 +37,6 @@ acsee_service = AcseeResultService()
 exam_discovery_service = ExamDiscoveryService()
 student_router = APIRouter(prefix="/student", tags=["student"])
 app = FastAPI(title="Mwongozo Smart", version="0.1.0")
-
-# region agent log
-_debug_log(
-    "backend/app.py:module-load",
-    "FastAPI app constructed",
-    {"app_id": id(app), "module_file": str(Path(__file__).resolve())},
-    hypothesis_id="H2/H3",
-)
-# endregion
 
 
 def get_engine() -> RecommendationEngine:
@@ -80,7 +51,7 @@ def get_csee_result_service() -> CseeResultService:
 def build_recommendation_response(student: StudentInput, limit: int) -> dict[str, object]:
     student_result = student.to_student_result()
     result = engine.recommend(student_result, limit=limit)
-    review_limit = min(120, max(60, limit + 20))
+    review_limit = min(180, max(80, limit + 40))
     review = engine.review_candidates(student_result, limit=review_limit)
     combinations = engine.suggest_combinations(student_result)
     return {
@@ -91,6 +62,21 @@ def build_recommendation_response(student: StudentInput, limit: int) -> dict[str
         "review_candidates": [item.model_dump(mode="json") for item in review],
         "combination_suggestions": [item.model_dump(mode="json") for item in combinations],
     }
+
+
+class LoanTrackRequest(BaseModel):
+    heslb_reference: str = ""
+    exam_number: str = ""
+    exam_level: str = Field(default="a_level", pattern="^(a_level|o_level)$")
+    selected_programme: str = ""
+    selected_university: str = ""
+    institution_ownership: str | None = None
+    nin: str = ""
+    academic_grades: list[str] = Field(default_factory=list)
+    institution_accredited: bool = True
+    late_submission_risk: bool = False
+    special_categories: dict[str, bool] = Field(default_factory=dict)
+    language: str = "sw"
 
 
 class SubjectInput(BaseModel):
@@ -239,642 +225,6 @@ def home() -> str:
         .replace("__COMBO_OPTIONS__", combo_options)
     )
 
-    template = """
-    <!doctype html>
-    <html lang="sw">
-    <head>
-      <meta charset="utf-8" />
-      <meta name="viewport" content="width=device-width, initial-scale=1" />
-      <title>Mwongozo Smart</title>
-      <style>
-        html { scroll-behavior:smooth; }
-        :root {
-          --bg:#07111f;
-          --panel:rgba(10,16,29,.92);
-          --line:rgba(148,163,184,.22);
-          --text:#e5eefc;
-          --muted:#95a7bf;
-          --accent:#6ee7f9;
-          --accent2:#34d399;
-          --warn:#fbbf24;
-          --danger:#fb7185;
-          --shadow:0 8px 18px rgba(0,0,0,.18);
-          --shadow-soft:0 4px 10px rgba(0,0,0,.12);
-        }
-        body[data-theme="light"] {
-          --bg:#eef5fb;
-          --panel:rgba(255,255,255,.90);
-          --line:rgba(100,116,139,.18);
-          --text:#0f172a;
-          --muted:#475569;
-          --accent:#0284c7;
-          --accent2:#059669;
-          --warn:#b45309;
-          --danger:#be123c;
-          --shadow:0 8px 18px rgba(15,23,42,.10);
-          --shadow-soft:0 4px 10px rgba(15,23,42,.08);
-        }
-        * { box-sizing:border-box; }
-        body {
-          margin:0;
-          font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-          color:var(--text);
-          background:
-            radial-gradient(circle at top left, rgba(52,211,153,.08), transparent 28%),
-            radial-gradient(circle at top right, rgba(110,231,249,.08), transparent 24%),
-            linear-gradient(180deg, var(--bg) 0%, #091525 100%);
-          transition:background .25s ease, color .25s ease;
-        }
-        body[data-theme="light"] .hero {
-          background: linear-gradient(135deg, rgba(255,255,255,.94), rgba(239,246,255,.90));
-        }
-        body[data-theme="light"] .hero p,
-        body[data-theme="light"] .footer-note,
-        body[data-theme="light"] .small,
-        body[data-theme="light"] .result-card,
-        body[data-theme="light"] .meta-grid,
-        body[data-theme="light"] .pill {
-          color: var(--text);
-        }
-        .wrap { max-width:1120px; margin:0 auto; padding:22px; }
-        .hero {
-          background: linear-gradient(135deg, rgba(15,23,42,.96), rgba(8,47,73,.92));
-          border:1px solid var(--line);
-          box-shadow:var(--shadow);
-          padding:24px;
-          border-radius:22px;
-          position:relative;
-        }
-        .hero h1 { margin:0 0 10px; font-size:2.2rem; line-height:1.05; }
-        .hero p { margin:0; color:var(--muted); line-height:1.75; max-width:860px; }
-        .pill-row { display:flex; flex-wrap:wrap; gap:10px; margin-top:14px; }
-        .pill {
-          border:1px solid rgba(110,231,249,.18);
-          background:rgba(15,23,42,.60);
-          padding:8px 12px;
-          border-radius:999px;
-          color:#c7f9ff;
-          font-size:.92rem;
-        }
-        body[data-theme="light"] .pill { background:rgba(255,255,255,.95); color:#0369a1; }
-        .theme-toggle {
-          position:absolute;
-          top:18px;
-          right:18px;
-        }
-        .card {
-          background:var(--panel);
-          border:1px solid var(--line);
-          border-radius:20px;
-          padding:18px;
-          box-shadow:var(--shadow);
-        }
-        .page-view { margin-top:18px; }
-        .page-view.hidden { display:none; }
-        .fade-in { animation:fadeUp .35s ease both; }
-        @keyframes fadeUp {
-          from { opacity:0; transform:translateY(10px); }
-          to { opacity:1; transform:translateY(0); }
-        }
-        .section-title { display:flex; align-items:baseline; justify-content:space-between; gap:10px; margin-bottom:12px; }
-        .section-title h2, .section-title h3 { margin:0; }
-        .muted { color:var(--muted); }
-        .small { font-size:.9rem; }
-        .step-bar { display:grid; gap:10px; grid-template-columns:repeat(2, minmax(0,1fr)); margin-bottom:16px; }
-        .btn {
-          border:none;
-          border-radius:14px;
-          padding:12px 14px;
-          font-weight:800;
-          cursor:pointer;
-          transition:transform .18s ease, box-shadow .18s ease, opacity .18s ease;
-          box-shadow:var(--shadow-soft);
-        }
-        .btn:hover { transform:translateY(-1px); opacity:.98; }
-        .btn-primary { background:linear-gradient(135deg, #06b6d4, #10b981); color:#04111b; }
-        .btn-secondary { background:rgba(15,23,42,.92); color:var(--text); border:1px solid rgba(148,163,184,.22); }
-        body[data-theme="light"] .btn-secondary { background:rgba(255,255,255,.96); }
-        .btn-danger { background:rgba(127,29,29,.85); color:#fee2e2; }
-        .btn.active { outline:2px solid rgba(110,231,249,.45); }
-        .grid-2 { display:grid; gap:14px; grid-template-columns:repeat(2, minmax(0,1fr)); }
-        .grid-3 { display:grid; gap:14px; grid-template-columns:repeat(3, minmax(0,1fr)); }
-        .field { display:grid; gap:8px; }
-        label { color:var(--text); font-size:.95rem; }
-        input, select {
-          font:inherit;
-          color:var(--text);
-          background:rgba(2,6,23,.82);
-          border:1px solid rgba(148,163,184,.24);
-          border-radius:12px;
-          padding:11px 13px;
-          outline:none;
-        }
-        body[data-theme="light"] input, body[data-theme="light"] select { background:rgba(255,255,255,.96); }
-        input:focus, select:focus { border-color:rgba(110,231,249,.68); box-shadow:0 0 0 2px rgba(34,211,238,.10); }
-        .hidden { display:none !important; }
-        .subject-list { display:grid; gap:10px; margin-top:12px; }
-        .subject-row {
-          display:grid;
-          gap:10px;
-          grid-template-columns:minmax(0,2fr) 92px 120px auto;
-          align-items:center;
-          background:rgba(15,23,42,.68);
-          border:1px solid rgba(148,163,184,.14);
-          border-radius:14px;
-          padding:10px;
-        }
-        body[data-theme="light"] .subject-row { background:rgba(255,255,255,.92); }
-        .action-row { display:flex; flex-wrap:wrap; gap:10px; margin-top:14px; }
-        .results { display:grid; gap:14px; margin-top:14px; }
-        .result-card {
-          background:linear-gradient(180deg, rgba(15,23,42,.92), rgba(2,6,23,.96));
-          border:1px solid rgba(148,163,184,.14);
-          border-radius:16px;
-          padding:16px;
-          color:var(--text);
-        }
-        body[data-theme="light"] .result-card {
-          background:linear-gradient(180deg, rgba(255,255,255,.98), rgba(240,248,255,.96));
-        }
-        .result-head { display:flex; justify-content:space-between; gap:12px; align-items:center; }
-        .rank {
-          min-width:40px;
-          height:40px;
-          display:inline-grid;
-          place-items:center;
-          border-radius:12px;
-          background:rgba(34,197,94,.10);
-          color:var(--accent2);
-          font-weight:800;
-        }
-        .confidence {
-          padding:6px 10px;
-          border-radius:999px;
-          font-weight:700;
-          background:rgba(110,231,249,.10);
-          color:var(--text);
-          border:1px solid rgba(110,231,249,.18);
-        }
-        .meta-grid {
-          display:grid;
-          gap:8px;
-          grid-template-columns:repeat(auto-fit, minmax(170px, 1fr));
-          margin-top:12px;
-          font-size:.92rem;
-          color:var(--text);
-        }
-        .warning, .error, .success {
-          margin-top:12px;
-          padding:10px 12px;
-          border-radius:12px;
-          color:var(--text);
-        }
-        .warning { border-left:3px solid var(--warn); background:rgba(251,191,36,.08); }
-        .error { border-left:3px solid var(--danger); background:rgba(251,113,133,.08); }
-        .success { border-left:3px solid var(--accent2); background:rgba(52,211,153,.08); }
-        body[data-theme="light"] .warning { background:rgba(180,83,9,.08); }
-        body[data-theme="light"] .error { background:rgba(190,18,60,.08); }
-        body[data-theme="light"] .success { background:rgba(5,150,105,.08); }
-        .footer-note { margin-top:12px; color:var(--muted); font-size:.92rem; }
-        .results-nav { display:flex; justify-content:space-between; gap:12px; align-items:center; flex-wrap:wrap; }
-        .toggle-icon {
-          display:inline-grid;
-          place-items:center;
-          width:1.1em;
-          height:1.1em;
-          margin-right:6px;
-          vertical-align:-0.12em;
-        }
-        @media (max-width: 980px) {
-          .grid-2, .grid-3, .step-bar { grid-template-columns:1fr; }
-          .subject-row { grid-template-columns:1fr 1fr; }
-          .theme-toggle { position:static; margin-top:14px; }
-        }
-      </style>
-    </head>
-    <body>
-      <div class="wrap">
-        <section class="hero fade-in">
-          <button type="button" class="btn btn-secondary theme-toggle" id="themeToggle"><span class="toggle-icon" id="themeIcon">â˜€</span><span id="themeLabel">Light mode</span></button>
-          <h1>Mwongozo Smart</h1>
-          <p>Chagua level, jaza matokeo yako, kisha bonyeza <strong>Pata Recommendations</strong>. Mfumo utatoa programme zinazokaribia eligibility yako kwa kutumia TCU Guidebook 2025/2026.</p>
-          <div class="pill-row">
-            <span class="pill">Step 1: select level</span>
-            <span class="pill">Step 2: enter results</span>
-            <span class="pill">Rules first</span>
-            <span class="pill">English output</span>
-          </div>
-        </section>
-
-        <section id="inputView" class="page-view fade-in">
-          <div class="card">
-            <div class="section-title">
-              <h2>Chagua level ya mtumiaji</h2>
-              <span class="muted small">Form 4 au Form 6</span>
-            </div>
-            <div class="step-bar">
-              <button type="button" class="btn btn-primary" data-pathway-button="o_level">Form 4 / O-Level</button>
-              <button type="button" class="btn btn-primary" data-pathway-button="a_level">Form 6 / A-Level</button>
-            </div>
-            <p class="footer-note">Chagua level kwanza. Kisha form husika itaonekana tu.</p>
-
-            <form id="recommendForm">
-              <input type="hidden" id="pathway" name="pathway" value="" />
-
-              <div id="levelPrompt" class="success">
-                Bonyeza <strong>Form 4</strong> au <strong>Form 6</strong> ili uanze.
-              </div>
-
-              <div id="aLevelSection" class="hidden">
-                <div class="section-title" style="margin-top:16px;">
-                  <h3>Form 6 / A-Level</h3>
-                  <span class="muted small">Chagua combination kisha masomo yajaze automatically</span>
-                </div>
-                <div class="grid-3">
-                  <div class="field">
-                    <input type="hidden" id="a_level_scheme" name="a_level_scheme" value="2016_plus" />
-                  </div>
-                  <div class="field">
-                    <label for="combination">Combination</label>
-                    <select id="combination" name="combination">
-                      <option value="">Select combination</option>
-                      __COMBO_OPTIONS__
-                    </select>
-                  </div>
-                  <div class="field">
-                    <input type="hidden" id="language" name="language" value="english" />
-                  </div>
-                </div>
-                <div class="field" style="margin-top:14px;">
-                  <label>Principal subjects</label>
-                  <div id="aLevelSubjects" class="subject-list"></div>
-                  <div class="action-row">
-                    <button type="button" class="btn btn-secondary" data-add-subject="a">+ Add A-Level subject</button>
-                  </div>
-                </div>
-              </div>
-
-              <div id="oLevelSection" class="hidden">
-                <div class="section-title" style="margin-top:16px;">
-                  <h3>Form 4 / O-Level</h3>
-                  <span class="muted small">NECTA CSEE subjects, grades, and result model</span>
-                </div>
-                <div class="grid-3">
-                  <div class="field">
-                    <label for="division">Calculated division</label>
-                    <select id="division" name="division">
-                      <option value="">Select division</option>
-                      <option value="I">Division I</option>
-                      <option value="II">Division II</option>
-                      <option value="III">Division III</option>
-                      <option value="IV">Division IV</option>
-                    </select>
-                  </div>
-                  <div class="field">
-                    <label for="result_model">Result model</label>
-                    <select id="result_model" name="result_model">
-                      <option value="standard">NECTA standard</option>
-                      <option value="borderline">Borderline / review</option>
-                    </select>
-                  </div>
-                  <div class="field">
-                    <input type="hidden" id="o_language" name="o_language" value="english" />
-                  </div>
-                </div>
-                <div class="field" style="margin-top:14px;">
-                  <label>NECTA O-Level subjects</label>
-                  <div id="oLevelSubjects" class="subject-list"></div>
-                  <div class="action-row">
-                    <button type="button" class="btn btn-secondary" data-add-subject="o">+ Add O-Level subject</button>
-                  </div>
-                </div>
-              </div>
-
-              <div class="action-row" style="margin-top:18px;">
-                <button type="submit" class="btn btn-primary">Pata Recommendations</button>
-                <button type="button" class="btn btn-secondary" id="loadExample">Load example</button>
-                <button type="button" class="btn btn-secondary" id="clearForm">Clear</button>
-              </div>
-            </form>
-          </div>
-        </section>
-
-        <section id="resultsView" class="page-view hidden fade-in">
-          <div class="card">
-            <div class="results-nav">
-              <div class="section-title" style="margin:0;">
-                <h2>Matokeo</h2>
-                <span class="muted small">Top eligible programmes</span>
-              </div>
-              <button type="button" class="btn btn-secondary" id="backToInput">Badilisha inputs</button>
-            </div>
-            <div id="resultSummary" class="muted">Chagua level, jaza matokeo, kisha bonyeza <strong>Pata Recommendations</strong>.</div>
-            <div id="results" class="results"></div>
-          </div>
-        </section>
-      </div>
-
-      <script>
-        const subjectCatalog = __ASUBJECTS_JSON__;
-        const gradeOptions = __GRADES_JSON__;
-        const samplePayload = __SAMPLE_JSON__;
-        const oLevelSubjectsCatalog = __OSUBJECTS_JSON__;
-        const defaultOLevelSubjects = __ODEFAULTS_JSON__;
-
-        const aLevelContainer = document.getElementById("aLevelSubjects");
-        const oLevelContainer = document.getElementById("oLevelSubjects");
-        const resultsEl = document.getElementById("results");
-        const resultSummaryEl = document.getElementById("resultSummary");
-        const pathwayInput = document.getElementById("pathway");
-        const levelPrompt = document.getElementById("levelPrompt");
-        const aLevelSection = document.getElementById("aLevelSection");
-        const oLevelSection = document.getElementById("oLevelSection");
-        const pathwayButtons = document.querySelectorAll("[data-pathway-button]");
-        const combinationInput = document.getElementById("combination");
-        const inputView = document.getElementById("inputView");
-        const resultsView = document.getElementById("resultsView");
-        const themeToggle = document.getElementById("themeToggle");
-        const themeIcon = document.getElementById("themeIcon");
-        const themeLabel = document.getElementById("themeLabel");
-
-        function setTheme(theme) {
-          const nextTheme = theme === "light" ? "light" : "dark";
-          document.body.dataset.theme = nextTheme;
-          localStorage.setItem("mwongozo-theme", nextTheme);
-          themeLabel.textContent = nextTheme === "light" ? "Dark mode" : "Light mode";
-          themeIcon.textContent = nextTheme === "light" ? "â˜¾" : "â˜€";
-        }
-
-        function showInputView() {
-          inputView.classList.remove("hidden");
-          resultsView.classList.add("hidden");
-          window.scrollTo({ top: 0, behavior: "smooth" });
-        }
-
-        function showResultsView() {
-          resultsView.classList.remove("hidden");
-          inputView.classList.add("hidden");
-          window.scrollTo({ top: 0, behavior: "smooth" });
-        }
-
-        function subjectRow(preset = {}, level = "a") {
-          const catalog = level === "o" ? oLevelSubjectsCatalog : subjectCatalog;
-          const gradeOptionsHtml = gradeOptions.map(g => {
-            const label = g === "" ? "--" : g;
-            return `<option value="${g}" ${preset.grade === g ? "selected" : ""}>${label}</option>`;
-          }).join("");
-          const wrapper = document.createElement("div");
-          wrapper.className = "subject-row";
-          wrapper.innerHTML = `
-            <select class="subject-name">
-              ${catalog.map(s => `<option value="${s}" ${preset.subject === s ? "selected" : ""}>${s}</option>`).join("")}
-            </select>
-            <select class="subject-grade">
-              ${gradeOptionsHtml}
-            </select>
-            <select class="subject-model">
-              <option value="core" ${preset.model !== "elective" ? "selected" : ""}>Core</option>
-              <option value="elective" ${preset.model === "elective" ? "selected" : ""}>Elective</option>
-            </select>
-            <button type="button" class="btn btn-danger remove-btn">Remove</button>
-          `;
-          wrapper.querySelector(".remove-btn").addEventListener("click", () => wrapper.remove());
-          return wrapper;
-        }
-
-        const combinationMap = {
-          PCB: ["Physics", "Chemistry", "Biology"],
-          PCM: ["Physics", "Chemistry", "Advanced Mathematics"],
-          PGM: ["Physics", "Geography", "Advanced Mathematics"],
-          CBG: ["Chemistry", "Biology", "Geography"],
-          EGM: ["Economics", "Geography", "Advanced Mathematics"],
-          HGL: ["History", "Geography", "English Language"],
-          HKL: ["History", "Kiswahili", "English Language"],
-          HGK: ["History", "Geography", "Kiswahili"],
-        };
-
-        function setAlevelByCombination(code) {
-          // Auto-fill the common A-Level subject set for the selected combination.
-          const selected = combinationMap[code] || [];
-          aLevelContainer.innerHTML = "";
-          (selected.length ? selected : ["Physics", "Chemistry", "Biology"]).forEach((subject, index) => {
-            aLevelContainer.appendChild(subjectRow({ subject, grade: index === 0 ? "A" : "B", model: "core" }, "a"));
-          });
-        }
-
-        function ensureDefaultRows() {
-          // Create starter rows so the form is never empty when a level is opened.
-          if (!aLevelContainer.children.length) {
-            setAlevelByCombination(combinationInput.value || "PCB");
-          }
-          if (!oLevelContainer.children.length) {
-            defaultOLevelSubjects.forEach(subject => {
-              oLevelContainer.appendChild(subjectRow({ subject, grade: "", model: "core" }, "o"));
-            });
-          }
-        }
-
-        function setPathway(pathway) {
-          // Switch between A-Level and O-Level input panels.
-          pathwayInput.value = pathway;
-          levelPrompt.classList.add("hidden");
-          aLevelSection.classList.add("hidden");
-          oLevelSection.classList.add("hidden");
-          pathwayButtons.forEach(btn => btn.classList.remove("active"));
-          const active = [...pathwayButtons].find(btn => btn.dataset.pathwayButton === pathway);
-          if (active) active.classList.add("active");
-          if (pathway === "a_level") aLevelSection.classList.remove("hidden");
-          if (pathway === "o_level") {
-            oLevelSection.classList.remove("hidden");
-            if (!oLevelContainer.children.length) {
-              ensureDefaultRows();
-            }
-          }
-        }
-
-        function populateFromPayload(payload) {
-          // Load a demo student profile so the user can test the flow quickly.
-          setPathway(payload.pathway || "a_level");
-          document.getElementById("a_level_scheme").value = payload.a_level_scheme || "2016_plus";
-          document.getElementById("combination").value = payload.combination || "";
-          document.getElementById("language").value = payload.language || "both";
-          document.getElementById("o_language").value = payload.language || "both";
-          document.getElementById("division").value = "";
-          document.getElementById("result_model").value = "standard";
-          aLevelContainer.innerHTML = "";
-          oLevelContainer.innerHTML = "";
-          (payload.a_level_subjects || []).forEach(item => aLevelContainer.appendChild(subjectRow(item, "a")));
-          (payload.o_level_subjects || []).forEach(item => oLevelContainer.appendChild(subjectRow(item, "o")));
-          ensureDefaultRows();
-          if (payload.combination) {
-            setAlevelByCombination(payload.combination);
-          }
-        }
-
-        function buildPayload() {
-          // Translate form inputs into the exact JSON shape expected by FastAPI.
-          const pathway = pathwayInput.value || "a_level";
-          const readSubjects = (container, level) => Array.from(container.querySelectorAll(".subject-row")).map(row => ({
-            subject: row.querySelector(".subject-name").value,
-            grade: row.querySelector(".subject-grade").value,
-            principal: true,
-            level,
-          }));
-          return {
-            pathway,
-            a_level_scheme: document.getElementById("a_level_scheme").value,
-            a_level_subjects: pathway === "a_level" ? readSubjects(aLevelContainer, "a_level") : [],
-            o_level_subjects: pathway === "o_level" ? readSubjects(oLevelContainer, "o_level") : [],
-            combination: document.getElementById("combination").value || null,
-            preferred_regions: [],
-            preferred_institutions: [],
-            language: pathway === "a_level" ? document.getElementById("language").value : document.getElementById("o_language").value,
-            equivalent_qualification: null,
-            notes: pathway === "o_level"
-              ? [
-                  `Division: ${document.getElementById("division").value || ""}`,
-                  `Result model: ${document.getElementById("result_model").value || ""}`,
-                ]
-              : [],
-          };
-        }
-
-        function renderRecommendations(data) {
-          // Turn API response JSON into readable recommendation cards.
-          const recommendations = data.recommendations || [];
-          const reviewCandidates = data.review_candidates || [];
-          showResultsView();
-          if (!recommendations.length) {
-            resultSummaryEl.innerHTML = `<div class="error">Hakuna programme iliyo eligible kwa input hii.</div>`;
-            resultsEl.innerHTML = reviewCandidates.length
-              ? `<div class="warning">Borderline / parallel options:</div><div class="footer-note">${reviewCandidates.length} near-matches available for review.</div>`
-              : `<div class="footer-note">Hii inaonyesha current inputs bado hazijafikia direct match. Jaribu combination nyingine au angalia strict requirements.</div>`;
-            return;
-          }
-          resultSummaryEl.innerHTML = `<div class="success">${recommendations.length} programme(s) zimepata direct eligibility.</div>${reviewCandidates.length ? `<div class="warning" style="margin-top:10px;">${reviewCandidates.length} borderline/parallel options ziko chini kwa review.</div>` : ""}`;
-          resultsEl.innerHTML = [...recommendations, ...reviewCandidates].map((rec) => {
-            const warnings = (rec.assessment?.warnings || []).map(w => `<div class="warning">${w}</div>`).join("");
-            const issues = (rec.assessment?.missing_rules || []).length ? `<div class="error">${rec.assessment.missing_rules.join("<br>")}</div>` : "";
-            const matched = (rec.assessment?.matched_rules || []).slice(0, 5).join(", ") || "No matched rules listed";
-            const isReview = reviewCandidates.includes(rec);
-            const applyUrl = rec.institution_apply_url || rec.institution_website || "";
-            const explanation = [...(rec.assessment?.why_recommended || []), ...(rec.assessment?.why_borderline || []), ...(rec.assessment?.why_not_matched || [])];
-            const parallel = (rec.assessment?.parallel_courses || []).map(item => `<li>${item}</li>`).join("");
-            const ruleTraces = (rec.assessment?.rule_traces || []).map(trace => `<li>${trace.passed ? "Passed" : "Failed"}: ${trace.label} (${trace.points} pts)${trace.details ? ` - ${trace.details}` : ""}</li>`).join("");
-            return `
-              <article class="result-card ${isReview ? "review-card" : ""}">
-                <div class="result-head">
-                  <div style="display:flex; gap:12px; align-items:center;">
-                    <div class="rank">${rec.rank}</div>
-                    <div>
-                      <div class="small muted">${rec.programme.code}</div>
-                      <h3 style="margin:0;">${rec.programme.name}</h3>
-                      ${isReview ? `<div class="small muted">Borderline / parallel option</div>` : ""}
-                      <div class="small muted">${rec.programme.institution_name} Â· ${rec.programme.region}</div>
-                    </div>
-                  </div>
-                  <div class="confidence">${rec.assessment.confidence}% Â· ${rec.assessment.confidence_band}</div>
-                </div>
-                <div class="meta-grid">
-                  <div><strong>User points:</strong> ${rec.student_points}</div>
-                  <div><strong>Min points:</strong> ${rec.minimum_required_points}</div>
-                  <div><strong>Duration:</strong> ${rec.programme.duration_years ?? "-"} years</div>
-                  <div><strong>Section:</strong> ${rec.assessment.section}</div>
-                  <div><strong>Tier:</strong> ${rec.programme.competition_tier}</div>
-                  <div><strong>Margin:</strong> ${rec.assessment.points_margin}</div>
-                </div>
-                <div class="footer-note"><strong>Matched rules:</strong> ${matched}</div>
-                <div class="footer-note"><strong>Rule points:</strong> ${rec.assessment.rule_points ?? 0}</div>
-                ${warnings}
-                ${issues}
-                ${applyUrl ? `<div class="action-row"><a class="btn btn-primary" href="${applyUrl}" target="_blank" rel="noopener noreferrer">${rec.cta_label || "Apply Now"}</a></div>` : ""}
-                <details class="readmore"><summary>Read more: Show why this programme was recommended</summary>
-                  <div class="footer-note">
-                    <ul>${explanation.map(item => `<li>${item}</li>`).join("") || "<li>No explanation available yet.</li>"}</ul>
-                    <p><strong>Parallel courses:</strong></p>
-                    <ul>${parallel || "<li>No similar course found yet.</li>"}</ul>
-                    <p><strong>Rule trace:</strong></p>
-                    <ul>${ruleTraces || "<li>No rule trace available.</li>"}</ul>
-                  </div>
-                </details>
-              </article>
-            `;
-          }).join("");
-        }
-
-        document.getElementById("recommendForm").addEventListener("submit", async (event) => {
-          event.preventDefault();
-          resultSummaryEl.innerHTML = `<div class="muted">Ina-load recommendations...</div>`;
-          resultsEl.innerHTML = "";
-          showResultsView();
-          try {
-            const response = await fetch("/recommend", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(buildPayload()),
-            });
-            const data = await response.json();
-            if (!response.ok) {
-              throw new Error(data.detail || "Request failed");
-            }
-            renderRecommendations(data);
-          } catch (error) {
-            resultSummaryEl.innerHTML = `<div class="error">${error.message}</div>`;
-          }
-        });
-
-        pathwayButtons.forEach(button => button.addEventListener("click", () => setPathway(button.dataset.pathwayButton)));
-        document.querySelector('[data-add-subject="a"]').addEventListener("click", () => aLevelContainer.appendChild(subjectRow({}, "a")));
-        document.querySelector('[data-add-subject="o"]').addEventListener("click", () => oLevelContainer.appendChild(subjectRow({}, "o")));
-        document.getElementById("combination").addEventListener("change", () => {
-          if (pathwayInput.value === "a_level" && combinationInput.value) {
-            setAlevelByCombination(combinationInput.value);
-          }
-        });
-        document.getElementById("loadExample").addEventListener("click", () => populateFromPayload(samplePayload));
-        document.getElementById("clearForm").addEventListener("click", () => {
-          aLevelContainer.innerHTML = "";
-          oLevelContainer.innerHTML = "";
-          document.getElementById("a_level_scheme").value = "2016_plus";
-          document.getElementById("combination").value = "";
-          document.getElementById("language").value = "both";
-          document.getElementById("o_language").value = "both";
-          document.getElementById("division").value = "";
-          document.getElementById("result_model").value = "standard";
-          pathwayInput.value = "";
-          levelPrompt.classList.remove("hidden");
-          aLevelSection.classList.add("hidden");
-          oLevelSection.classList.add("hidden");
-          resultSummaryEl.innerHTML = '<div class="muted">Form imeclear. Chagua level kisha ujaze matokeo.</div>';
-          resultsEl.innerHTML = "";
-          showInputView();
-        });
-
-        themeToggle.addEventListener("click", () => {
-          setTheme(document.body.dataset.theme === "light" ? "dark" : "light");
-        });
-        document.getElementById("backToInput").addEventListener("click", showInputView);
-
-        document.getElementById("recommendForm").reset();
-        aLevelContainer.innerHTML = "";
-        oLevelContainer.innerHTML = "";
-        levelPrompt.classList.remove("hidden");
-        setTheme(localStorage.getItem("mwongozo-theme") || "dark");
-        showInputView();
-      </script>
-    </body>
-    </html>
-    """
-
-    return (
-        template.replace("__ASUBJECTS_JSON__", json.dumps(a_level_subjects_catalog))
-        .replace("__OSUBJECTS_JSON__", json.dumps(o_level_subjects_catalog))
-        .replace("__ODEFAULTS_JSON__", json.dumps(default_o_level_subjects))
-        .replace("__GRADES_JSON__", json.dumps(grades))
-        .replace("__SAMPLE_JSON__", json.dumps(sample_payload))
-        .replace("__COMBO_OPTIONS__", combo_options)
-    )
-
 
 @app.get("/health")
 def health() -> dict[str, str]:
@@ -925,7 +275,7 @@ def programmes() -> list[dict[str, object]]:
 @app.post("/recommend")
 def recommend(
     student: StudentInput,
-    limit: int = Query(80, ge=1, le=200, description="Max eligible recommendations to return"),
+    limit: int = Query(120, ge=1, le=250, description="Max eligible recommendations to return"),
 ) -> dict[str, object]:
     # Main API: evaluate the student and return ranked eligible programmes.
     try:
@@ -957,21 +307,8 @@ async def student_lookup(body: StudentLookupRequest) -> dict[str, object]:
 
 
 @app.post("/student/results/lookup")
-async def student_results_lookup(body: StudentResultsLookupRequest, request: Request) -> dict[str, object]:
+async def student_results_lookup(body: StudentResultsLookupRequest) -> dict[str, object]:
     """CSEE / ACSEE lookup with automatic NECTA vs TETEA source selection (same-origin as `/`)."""
-    # region agent log
-    _debug_log(
-        "backend/app.py:/student/results/lookup",
-        "endpoint entered",
-        {
-            "path": request.url.path,
-            "exam_type": getattr(body, "exam_type", None),
-            "year": getattr(body, "year", None),
-            "cno": getattr(body, "candidate_number", None),
-        },
-        hypothesis_id="H1/H4",
-    )
-    # endregion
     try:
         return await exam_discovery_service.lookup(body)
     except ValueError as exc:
@@ -998,7 +335,7 @@ async def student_results_recommend(body: StudentResultsRecommendRequest) -> dic
 @app.post("/student/profile/recommend")
 def student_profile_recommend(
     student: StudentInput,
-    limit: int = Query(80, ge=1, le=200, description="Max eligible recommendations to return"),
+    limit: int = Query(120, ge=1, le=250, description="Max eligible recommendations to return"),
 ) -> dict[str, object]:
     try:
         return build_recommendation_response(student, limit=limit)
@@ -1009,7 +346,7 @@ def student_profile_recommend(
 @app.post("/recommend/grouped")
 def recommend_grouped(
     student: StudentInput,
-    limit: int = Query(80, ge=1, le=200),
+    limit: int = Query(120, ge=1, le=250),
 ) -> dict[str, object]:
     # Same recommendations, but grouped by programme section.
     grouped = engine.recommend_grouped(student.to_student_result(), limit=limit)
@@ -1023,21 +360,142 @@ def recommend_grouped(
     }
 
 
+@app.get("/loan/demo-references")
+def loan_demo_references() -> dict[str, object]:
+    return {"references": list_demo_references(), "demo_mode": True}
+
+
+@app.post("/loan/track")
+def loan_track(body: LoanTrackRequest) -> dict[str, object]:
+    payload = body.model_dump()
+    if body.heslb_reference:
+        payload["heslb_reference"] = normalize_heslb_ref(body.heslb_reference)
+    return build_loan_tracking(payload)
+
+
+def _catalogue_institution_rows() -> list[dict[str, object]]:
+    from mwongozo_smart.data.institution_classify import classify_institution
+    from mwongozo_smart.data.institution_profiles import profile_for
+
+    prog_counts: dict[str, int] = {}
+    prog_previews: dict[str, list[str]] = {}
+    for programme in PROGRAMMES:
+        code = programme.institution_code
+        prog_counts[code] = prog_counts.get(code, 0) + 1
+        bucket = prog_previews.setdefault(code, [])
+        if len(bucket) < 5:
+            bucket.append(programme.name)
+
+    rows: list[dict[str, object]] = []
+    for institution in INSTITUTIONS:
+        meta = classify_institution(institution)
+        count = prog_counts.get(institution.code, 0)
+        profile = profile_for(institution, programme_count=count)
+        rows.append(
+            {
+                "code": institution.code,
+                "name": institution.name,
+                "city": institution.city,
+                "region": institution.region,
+                "website": institution.website,
+                "apply_url": institution.apply_url or institution.website,
+                "cta_label": institution.cta_label,
+                "ownership": meta["ownership"],
+                "kind": meta["kind"],
+                "programme_count": count,
+                "catalogue_programme_count": count,
+                "summary": profile["summary"],
+                "summary_en": profile["summary_en"],
+                "programme_preview": prog_previews.get(institution.code, []),
+                "programmes_url": profile["programmes_url"],
+                "source_label": profile["source_label"],
+                "programme_source": "catalogue",
+            }
+        )
+    return rows
+
+
+def _merge_live_row(row: dict[str, object], live_payload: dict[str, object] | None) -> dict[str, object]:
+    if not live_payload:
+        return row
+    status = str(live_payload.get("status") or "")
+    count = int(live_payload.get("programme_count") or 0)
+    programmes = list(live_payload.get("programmes") or [])
+    if status != "ok" or count <= 0:
+        return row
+    row = dict(row)
+    row["programme_count"] = count
+    row["programme_preview"] = programmes[:5]
+    row["programme_source"] = "official"
+    row["source_label"] = str(live_payload.get("source_label") or "Tovuti rasmi")
+    source_url = str(live_payload.get("source_url") or "")
+    if source_url:
+        row["programmes_url"] = source_url
+    row["live_fetched_at"] = live_payload.get("fetched_at")
+    return row
+
+
 @app.get("/institutions")
-def institutions() -> list[dict[str, object]]:
-    # Public list of institutions with official links and application CTAs.
-    return [
-        {
-            "code": institution.code,
-            "name": institution.name,
-            "city": institution.city,
-            "region": institution.region,
-            "website": institution.website,
-            "apply_url": institution.website or institution.apply_url,
-            "cta_label": institution.cta_label,
-        }
-        for institution in INSTITUTIONS
-    ]
+def institutions(
+    source: str = Query(
+        "auto",
+        description="auto = official site when cached, else catalogue; official = catalogue only until live fetch; catalogue = TCU only",
+    ),
+) -> list[dict[str, object]]:
+    from mwongozo_smart.services.live_programmes import get_cached_live
+
+    rows = _catalogue_institution_rows()
+    if source == "catalogue":
+        return rows
+
+    if source == "official":
+        merged: list[dict[str, object]] = []
+        for row in rows:
+            cached = get_cached_live(str(row["code"]))
+            if cached is not None and cached.status == "ok" and cached.programme_count > 0:
+                merged.append(_merge_live_row(row, cached.to_dict()))
+            else:
+                merged.append(row)
+        return merged
+
+    merged_auto: list[dict[str, object]] = []
+    for row in rows:
+        cached = get_cached_live(str(row["code"]))
+        merged_auto.append(_merge_live_row(row, cached.to_dict() if cached else None))
+    return merged_auto
+
+
+@app.get("/institutions/live-summaries")
+def institutions_live_summaries(
+    refresh: int = Query(0, ge=0, le=25, description="Fetch up to N institutions from official websites now"),
+) -> dict[str, object]:
+    from mwongozo_smart.services.live_programmes import all_cached_summaries, refresh_live_batch
+
+    codes = [inst.code for inst in INSTITUTIONS]
+    refreshed_codes: list[str] = []
+    if refresh > 0:
+        batch = refresh_live_batch(INSTITUTIONS, limit=refresh, force=False)
+        refreshed_codes = list(batch.keys())
+    summaries = all_cached_summaries(codes)
+    return {
+        "summaries": summaries,
+        "refreshed": refreshed_codes,
+        "cache_ttl_hours": 12,
+    }
+
+
+@app.get("/institutions/{institution_code}/programmes/live")
+def institution_live_programmes(
+    institution_code: str,
+    force: bool = Query(False, description="Bypass cache and fetch again from official site"),
+) -> dict[str, object]:
+    from mwongozo_smart.services.live_programmes import get_or_fetch_live
+
+    institution = next((item for item in INSTITUTIONS if item.code == institution_code), None)
+    if institution is None:
+        raise HTTPException(status_code=404, detail=f"Institution {institution_code} not found.")
+    snapshot = get_or_fetch_live(institution, force=force)
+    return snapshot.to_dict()
 
 
 @app.exception_handler(ValueError)
@@ -1098,55 +556,4 @@ app.include_router(student_router)
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
 if _STATIC_DIR.is_dir():
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
-
-# region agent log
-try:
-    _routes_summary = [
-        {
-            "path": getattr(_rt, "path", str(_rt)),
-            "methods": sorted(list(getattr(_rt, "methods", []) or [])),
-            "name": getattr(_rt, "name", None),
-        }
-        for _rt in app.routes
-    ]
-    _debug_log(
-        "backend/app.py:include_router",
-        "all routes registered",
-        {
-            "count": len(_routes_summary),
-            "has_student_results_lookup": any(
-                r["path"] == "/student/results/lookup" for r in _routes_summary
-            ),
-            "routes": _routes_summary,
-        },
-        hypothesis_id="H1/H2/H3",
-    )
-except Exception as _exc:
-    _debug_log(
-        "backend/app.py:include_router",
-        "route summary log failed",
-        {"error": repr(_exc)},
-        hypothesis_id="H1/H2/H3",
-    )
-
-
-@app.middleware("http")
-async def _debug_request_middleware(request: Request, call_next):
-    response = await call_next(request)
-    # Only log writes / unusual statuses to avoid noise from static GETs.
-    if request.method != "GET" or response.status_code >= 400:
-        _debug_log(
-            "backend/app.py:middleware",
-            "request handled",
-            {
-                "method": request.method,
-                "path": request.url.path,
-                "query": str(request.url.query),
-                "status": response.status_code,
-                "client": getattr(request.client, "host", None),
-            },
-            hypothesis_id="H1/H4/H5",
-        )
-    return response
-# endregion
 

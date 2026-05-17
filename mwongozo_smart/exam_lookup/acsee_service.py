@@ -185,6 +185,18 @@ class AcseeResultService:
         results = await asyncio.gather(*[ingest(url) for url in urls])
         return sum(results)
 
+    def _cached_fallback(self, exam_year: int, candidate_norm: str, exc: Exception) -> NectaAcseeResult | None:
+        cached = self._cache.get_result(exam_year, candidate_norm)
+        if not cached:
+            return None
+        logger.warning(
+            "ACSEE live lookup failed (%s); serving cached result for %s %s",
+            exc,
+            exam_year,
+            candidate_norm,
+        )
+        return cached.model_copy(update={"retrieved_via_cache_fallback": True})
+
     async def lookup(
         self,
         exam_year: int,
@@ -199,43 +211,49 @@ class AcseeResultService:
             logger.info("ACSEE cache hit %s %s", exam_year, candidate_norm)
             return cached
 
-        if refresh_centre_index:
-            await self.refresh_centre_index(exam_year)
-
-        upstream = resolve_acsee_data_source(exam_year)
-        # NECTA reliably publishes a year index; TETEA stopped publishing year indices for recent years
-        # (e.g. ACSEE 2020) even though individual centre pages still exist, so we skip the probe.
-        if upstream is AcseeUpstream.NECTA_ONLINESYS and not await self.year_has_acsee(exam_year):
-            raise ValueError(
-                f"Matokeo ya ACSEE mwaka {exam_year} hayapatikani kwenye mfumo wa NECTA online. {NECTA_ONLINE_HINT_SW} "
-                f"\nEnglish: ACSEE results for {exam_year} are not published on the NECTA online portal. "
-                f"{NECTA_ONLINE_HINT_EN}"
-            )
-
-        candidates = acsee_centre_page_url_candidates(exam_year, centre, necta_base_url=self._base)
-        logger.info("Fetching ACSEE centre page candidates %s", candidates)
         try:
-            page_url, html = await self._crawler.fetch_text_first_ok(candidates)
-        except httpx.HTTPStatusError as exc:
-            if exc.response.status_code == 404 and upstream is AcseeUpstream.TETEA_MAKTABA:
+            if refresh_centre_index:
+                await self.refresh_centre_index(exam_year)
+
+            upstream = resolve_acsee_data_source(exam_year)
+            # NECTA reliably publishes a year index; TETEA stopped publishing year indices for recent years
+            # (e.g. ACSEE 2020) even though individual centre pages still exist, so we skip the probe.
+            if upstream is AcseeUpstream.NECTA_ONLINESYS and not await self.year_has_acsee(exam_year):
                 raise ValueError(
-                    f"Matokeo ya ACSEE mwaka {exam_year} kwa kituo {centre} hayapatikani kwenye maktaba ya TETEA "
-                    f"(ukurasa wa kituo haupo). Hakikisha namba ya kituo na mwaka ni sahihi. {TETEA_HINT_SW} "
-                    f"\nEnglish: ACSEE results for {exam_year} centre {centre} are not available on the TETEA archive "
-                    f"(centre page missing). Verify the centre code and year. {TETEA_HINT_EN}"
-                ) from exc
-            raise_friendly_httpx_status(exc, exam="ACSEE", year=exam_year, centre=centre, url=candidates[-1])
-        strategy = acsee_parser_strategy_for_year(exam_year)
-        parsed = strategy.parse(html, page_url, exam_year, candidate_norm)
-        self._cache.put_result(exam_year, candidate_norm, parsed)
-        return parsed
+                    f"Matokeo ya ACSEE mwaka {exam_year} hayapatikani kwenye mfumo wa NECTA online. {NECTA_ONLINE_HINT_SW} "
+                    f"\nEnglish: ACSEE results for {exam_year} are not published on the NECTA online portal. "
+                    f"{NECTA_ONLINE_HINT_EN}"
+                )
+
+            candidates = acsee_centre_page_url_candidates(exam_year, centre, necta_base_url=self._base)
+            logger.info("Fetching ACSEE centre page candidates %s", candidates)
+            try:
+                page_url, html = await self._crawler.fetch_text_first_ok(candidates)
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code == 404 and upstream is AcseeUpstream.TETEA_MAKTABA:
+                    raise ValueError(
+                        f"Matokeo ya ACSEE mwaka {exam_year} kwa kituo {centre} hayapatikani kwenye maktaba ya TETEA "
+                        f"(ukurasa wa kituo haupo). Hakikisha namba ya kituo na mwaka ni sahihi. {TETEA_HINT_SW} "
+                        f"\nEnglish: ACSEE results for {exam_year} centre {centre} are not available on the TETEA archive "
+                        f"(centre page missing). Verify the centre code and year. {TETEA_HINT_EN}"
+                    ) from exc
+                raise_friendly_httpx_status(exc, exam="ACSEE", year=exam_year, centre=centre, url=candidates[-1])
+            strategy = acsee_parser_strategy_for_year(exam_year)
+            parsed = strategy.parse(html, page_url, exam_year, candidate_norm)
+            self._cache.put_result(exam_year, candidate_norm, parsed)
+            return parsed
+        except (httpx.HTTPError, httpx.RequestError) as exc:
+            fallback = self._cached_fallback(exam_year, candidate_norm, exc)
+            if fallback is not None:
+                return fallback
+            raise
 
     def recommend_from_acsee(
         self,
         acsee: NectaAcseeResult,
         engine: RecommendationEngine,
         *,
-        limit: int = 80,
+        limit: int = 120,
         preferred_regions: list[str] | None = None,
         preferred_institutions: list[str] | None = None,
         language: str = "english",
@@ -250,7 +268,7 @@ class AcseeResultService:
         )
         principal = get_principal_summary(student_result)
         recs = engine.recommend(student_result, limit=limit)
-        review_limit = min(120, max(60, limit + 20))
+        review_limit = min(180, max(80, limit + 40))
         review = engine.review_candidates(student_result, limit=review_limit)
         combinations = engine.suggest_combinations(student_result)
         return {

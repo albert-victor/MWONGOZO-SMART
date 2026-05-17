@@ -71,6 +71,7 @@ class ExamDiscoveryService:
             return {
                 "exam_type": exam.value,
                 "data_source": record.data_source,
+                "cache_fallback": record.retrieved_via_cache_fallback,
                 "record": record.model_dump(mode="json"),
                 "student_input": necta_result_to_student_payload(record),
                 "calculated_points": {
@@ -90,6 +91,7 @@ class ExamDiscoveryService:
         return {
             "exam_type": exam.value,
             "data_source": record.data_source,
+            "cache_fallback": record.retrieved_via_cache_fallback,
             "record": record.model_dump(mode="json"),
             "student_input": student_result_to_api_input(student),
             "calculated_points": {
@@ -115,6 +117,7 @@ class ExamDiscoveryService:
             return {
                 "exam_type": exam.value,
                 "data_source": record.data_source,
+                "cache_fallback": record.retrieved_via_cache_fallback,
                 "record": record.model_dump(mode="json"),
                 "student_input": necta_result_to_student_payload(record),
                 "calculated_points": {
@@ -150,6 +153,7 @@ class ExamDiscoveryService:
         return {
             "exam_type": exam.value,
             "data_source": record.data_source,
+            "cache_fallback": record.retrieved_via_cache_fallback,
             "record": acsee_bundle["necta"],
             "student_input": acsee_bundle["input"],
             "calculated_points": {

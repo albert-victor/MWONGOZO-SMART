@@ -110,6 +110,18 @@ class CseeResultService:
         )
         return ok
 
+    def _cached_fallback(self, year: int, candidate_norm: str, exc: Exception) -> NectaCseeResult | None:
+        cached = self._cache.get_result(year, candidate_norm)
+        if not cached:
+            return None
+        logger.warning(
+            "CSEE live lookup failed (%s); serving cached result for %s %s",
+            exc,
+            year,
+            candidate_norm,
+        )
+        return cached.model_copy(update={"retrieved_via_cache_fallback": True})
+
     async def lookup(self, year: int, candidate_number: str, *, skip_cache: bool = False) -> NectaCseeResult:
         centre, candidate_norm, _serial = parse_candidate_number(candidate_number)
         if not skip_cache:
@@ -118,34 +130,40 @@ class CseeResultService:
                 logger.info("CSEE cache hit for %s %s", year, candidate_norm)
                 return cached
 
-        upstream = resolve_csee_data_source(year)
-        # NECTA reliably publishes a year index; for TETEA we skip the index probe
-        # (TETEA stopped publishing year indices for 2019+ even though centre pages still exist).
-        if upstream is CseeUpstream.NECTA_ONLINESYS and not await self.year_is_available(year):
-            raise ValueError(
-                f"Matokeo ya CSEE mwaka {year} hayapatikani kwenye mfumo wa NECTA online (rejeleo limeondolewa au halipo). "
-                f"{NECTA_ONLINE_HINT_SW} "
-                f"\nEnglish: CSEE results for {year} are not available on the NECTA online portal (index missing). "
-                f"{NECTA_ONLINE_HINT_EN}"
-            )
-
-        candidates = csee_centre_page_url_candidates(year, centre, necta_base_url=self._base)
-        logger.info("Fetching CSEE centre page candidates %s", candidates)
         try:
-            page_url, html = await self._crawler.fetch_text_first_ok(candidates)
-        except httpx.HTTPStatusError as exc:
-            if exc.response.status_code == 404 and upstream is CseeUpstream.TETEA_MAKTABA:
+            upstream = resolve_csee_data_source(year)
+            # NECTA reliably publishes a year index; for TETEA we skip the index probe
+            # (TETEA stopped publishing year indices for 2019+ even though centre pages still exist).
+            if upstream is CseeUpstream.NECTA_ONLINESYS and not await self.year_is_available(year):
                 raise ValueError(
-                    f"Matokeo ya CSEE mwaka {year} kwa kituo {centre} hayapatikani kwenye maktaba ya TETEA "
-                    f"(ukurasa wa kituo haupo). Hakikisha namba ya kituo na mwaka ni sahihi. {TETEA_HINT_SW} "
-                    f"\nEnglish: CSEE results for {year} centre {centre} are not available on the TETEA archive "
-                    f"(centre page missing). Verify the centre code and year. {TETEA_HINT_EN}"
-                ) from exc
-            _raise_friendly_httpx_status(exc, exam="CSEE", year=year, centre=centre, url=candidates[-1])
-        strategy = csee_parser_strategy_for_year(year)
-        result = strategy.parse(html, page_url, year, candidate_norm)
-        self._cache.put_result(year, candidate_norm, result)
-        return result
+                    f"Matokeo ya CSEE mwaka {year} hayapatikani kwenye mfumo wa NECTA online (rejeleo limeondolewa au halipo). "
+                    f"{NECTA_ONLINE_HINT_SW} "
+                    f"\nEnglish: CSEE results for {year} are not available on the NECTA online portal (index missing). "
+                    f"{NECTA_ONLINE_HINT_EN}"
+                )
+
+            candidates = csee_centre_page_url_candidates(year, centre, necta_base_url=self._base)
+            logger.info("Fetching CSEE centre page candidates %s", candidates)
+            try:
+                page_url, html = await self._crawler.fetch_text_first_ok(candidates)
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code == 404 and upstream is CseeUpstream.TETEA_MAKTABA:
+                    raise ValueError(
+                        f"Matokeo ya CSEE mwaka {year} kwa kituo {centre} hayapatikani kwenye maktaba ya TETEA "
+                        f"(ukurasa wa kituo haupo). Hakikisha namba ya kituo na mwaka ni sahihi. {TETEA_HINT_SW} "
+                        f"\nEnglish: CSEE results for {year} centre {centre} are not available on the TETEA archive "
+                        f"(centre page missing). Verify the centre code and year. {TETEA_HINT_EN}"
+                    ) from exc
+                _raise_friendly_httpx_status(exc, exam="CSEE", year=year, centre=centre, url=candidates[-1])
+            strategy = csee_parser_strategy_for_year(year)
+            result = strategy.parse(html, page_url, year, candidate_norm)
+            self._cache.put_result(year, candidate_norm, result)
+            return result
+        except (httpx.HTTPError, httpx.RequestError) as exc:
+            fallback = self._cached_fallback(year, candidate_norm, exc)
+            if fallback is not None:
+                return fallback
+            raise
 
     async def build_centre_index(self, year: int, *, clear_existing: bool = False) -> int:
         if year < CSEE_NECTA_ONLINE_MIN_YEAR:
