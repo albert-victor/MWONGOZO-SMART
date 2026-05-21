@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from mwongozo_smart.core.models import Institution
-from mwongozo_smart.data.sqlite_store import load_institutions, seed_institutions
+from mwongozo_smart.db.config import catalogue_seed_on_startup
+from mwongozo_smart.db.repositories.catalogue import get_catalogue_repository
+
+_catalogue_repo = get_catalogue_repository()
 
 
 _DEFAULT_INSTITUTIONS: list[Institution] = [
@@ -421,11 +424,105 @@ _DEFAULT_INSTITUTIONS: list[Institution] = [
         city="Zanzibar",
         region="Zanzibar",
     ),
+    # NACTVET / NACTE health & private TVET (O-Level certificate & diploma routes)
+    Institution(
+        code="PRIMUS",
+        name="Primus Health Care College",
+        city="Dar es Salaam",
+        region="Dar es Salaam",
+        website="https://primushealth.ac.tz/",
+    ),
+    Institution(
+        code="STJCH",
+        name="St. Joseph College of Health and Allied Sciences",
+        city="Ifakara",
+        region="Morogoro",
+    ),
+    Institution(
+        code="OCEANIC",
+        name="Oceanic College of Health Sciences",
+        city="Dar es Salaam",
+        region="Dar es Salaam",
+    ),
+    Institution(
+        code="BMC",
+        name="Benedictine Medical College",
+        city="Hulungu",
+        region="Ruvuma",
+    ),
+    Institution(
+        code="KCMC_TVET",
+        name="Kilimanjaro Christian Medical College (TVET)",
+        city="Moshi",
+        region="Kilimanjaro",
+        website="https://www.kcmc.ac.tz/",
+    ),
+    Institution(
+        code="MARIST_HT",
+        name="Marist Health Training Institute",
+        city="Morogoro",
+        region="Morogoro",
+    ),
+    Institution(
+        code="MUHIMBILI_CT",
+        name="Muhimbili College of Health and Allied Sciences",
+        city="Dar es Salaam",
+        region="Dar es Salaam",
+        website="https://www.muhimbili.ac.tz/",
+    ),
+    Institution(
+        code="TANZ_NURSING",
+        name="Tanzania Nurses and Midwives Council Training Cluster",
+        city="Dar es Salaam",
+        region="Dar es Salaam",
+    ),
+    Institution(
+        code="VETA_MS",
+        name="VETA Morogoro Regional Centre",
+        city="Morogoro",
+        region="Morogoro",
+    ),
+    Institution(
+        code="VETA_DS",
+        name="VETA Dar es Salaam Regional Centre",
+        city="Dar es Salaam",
+        region="Dar es Salaam",
+    ),
 ]
 
 
-seed_institutions(_DEFAULT_INSTITUTIONS)
-INSTITUTIONS: list[Institution] = load_institutions(_DEFAULT_INSTITUTIONS)
+if catalogue_seed_on_startup():
+    _catalogue_repo.seed_institutions(_DEFAULT_INSTITUTIONS)
+INSTITUTIONS: list[Institution] = _catalogue_repo.load_institutions(_DEFAULT_INSTITUTIONS)
+
+
+def expand_institutions_from_programmes(
+    base: list[Institution],
+    programmes: list,
+) -> list[Institution]:
+    from mwongozo_smart.core.models import Programme
+
+    by_code = {item.code: item for item in base}
+    for programme in programmes:
+        if not isinstance(programme, Programme):
+            continue
+        if programme.institution_code in by_code:
+            continue
+        by_code[programme.institution_code] = Institution(
+            code=programme.institution_code,
+            name=programme.institution_name,
+            city=programme.city,
+            region=programme.region,
+        )
+    return list(by_code.values())
+
+
+def refresh_from_programmes(programmes: list) -> None:
+    """Add institutions discovered in the programme catalog (e.g. parsed TCU exports)."""
+    global INSTITUTIONS
+    expanded = expand_institutions_from_programmes(_DEFAULT_INSTITUTIONS, programmes)
+    _catalogue_repo.seed_institutions(expanded)
+    INSTITUTIONS = _catalogue_repo.load_institutions(expanded)
 
 
 def institution_index() -> dict[str, Institution]:

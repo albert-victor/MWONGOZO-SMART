@@ -1,9 +1,15 @@
 from __future__ import annotations
 
 from mwongozo_smart.core.models import AdmissionRequirement, ConditionalRequirement, Programme, ProgrammeAwardLevel, ProgrammeCategory
+from mwongozo_smart.data.college_catalog_expansion import COLLEGE_CATALOG_PROGRAMMES
+from mwongozo_smart.data.nactvet_o_level_expansion import NACTVET_OLEVEL_PROGRAMMES
 from mwongozo_smart.data.guidebook_export_parser import load_parsed_programmes
-from mwongozo_smart.data.institutions import institution_index
-from mwongozo_smart.data.sqlite_store import load_programmes, seed_programmes
+from mwongozo_smart.data.institution_catalog import filter_catalog_programmes
+from mwongozo_smart.data.institutions import institution_index, refresh_from_programmes
+from mwongozo_smart.db.config import catalogue_seed_on_startup
+from mwongozo_smart.db.repositories.catalogue import get_catalogue_repository
+
+_catalogue_repo = get_catalogue_repository()
 
 _INSTITUTIONS = institution_index()
 
@@ -1653,116 +1659,6 @@ _ADDITIONAL_PROGRAMMES: list[Programme] = [
         source_reference="DUCE undergraduate programmes, 2026",
     ),
     Programme(
-        code="RUCU01",
-        name="Bachelor of Laws",
-        institution_code="RUCU",
-        institution_name=_INSTITUTIONS["RUCU"].name,
-        city=_INSTITUTIONS["RUCU"].city,
-        region=_INSTITUTIONS["RUCU"].region,
-        category=ProgrammeCategory.LAW,
-        duration_years=4,
-        competition_tier=4,
-        admission_requirement=AdmissionRequirement(
-            minimum_principal_passes=2,
-            minimum_total_points=4.0,
-            principal_subject_pool=[
-                "History",
-                "Geography",
-                "Kiswahili",
-                "English Language",
-                "French",
-                "Arabic",
-                "Fine Arts",
-                "Economics",
-                "Commerce",
-                "Accountancy",
-                "Physics",
-                "Chemistry",
-                "Biology",
-                "Advanced Mathematics",
-                "Agriculture",
-                "Computer Science",
-                "Nutrition",
-            ],
-            principal_pool_min_count=2,
-            conditional_requirements=[
-                ConditionalRequirement(
-                    unless_any_subjects=["English Language"],
-                    require_o_level_subject_grades={"English Language": "D"},
-                    message="Law applicants need English Language support if it is not a principal pass.",
-                )
-            ],
-            notes=["Official RUCU law entry rules accept strong arts/science combinations with English support."],
-        ),
-        tags=["law", "legal", "justice"],
-        source_reference="RUCU Faculty of Law, 2026",
-    ),
-    Programme(
-        code="RUCU02",
-        name="Bachelor of Science in Computer Science and Software Engineering",
-        institution_code="RUCU",
-        institution_name=_INSTITUTIONS["RUCU"].name,
-        city=_INSTITUTIONS["RUCU"].city,
-        region=_INSTITUTIONS["RUCU"].region,
-        category=ProgrammeCategory.COMPUTING,
-        duration_years=3,
-        competition_tier=4,
-        admission_requirement=AdmissionRequirement(
-            minimum_principal_passes=2,
-            minimum_total_points=4.0,
-            principal_subject_pool=["Advanced Mathematics", "Physics", "Computer Science"],
-            principal_pool_min_count=2,
-            minimum_a_level_subject_grades={"Advanced Mathematics": "D"},
-        ),
-        tags=["computer", "software", "it"],
-        source_reference="RUCU programme listings, 2026",
-    ),
-    Programme(
-        code="RUCU03",
-        name="Bachelor of Science in Accounting and Finance",
-        institution_code="RUCU",
-        institution_name=_INSTITUTIONS["RUCU"].name,
-        city=_INSTITUTIONS["RUCU"].city,
-        region=_INSTITUTIONS["RUCU"].region,
-        category=ProgrammeCategory.ACCOUNTING_FINANCE,
-        duration_years=3,
-        competition_tier=3,
-        admission_requirement=AdmissionRequirement(
-            minimum_principal_passes=2,
-            minimum_total_points=4.0,
-            principal_subject_pool=["Economics", "Commerce", "Accountancy", "Advanced Mathematics", "Geography"],
-            principal_pool_min_count=2,
-        ),
-        tags=["accountancy", "finance"],
-        source_reference="RUCU programme listings, 2026",
-    ),
-    Programme(
-        code="RUCU04",
-        name="Bachelor of Arts in Economics",
-        institution_code="RUCU",
-        institution_name=_INSTITUTIONS["RUCU"].name,
-        city=_INSTITUTIONS["RUCU"].city,
-        region=_INSTITUTIONS["RUCU"].region,
-        category=ProgrammeCategory.BUSINESS,
-        duration_years=3,
-        competition_tier=3,
-        admission_requirement=AdmissionRequirement(
-            minimum_principal_passes=2,
-            minimum_total_points=4.0,
-            principal_subject_pool=["Economics", "Advanced Mathematics", "Commerce", "Accountancy", "Geography", "History"],
-            principal_pool_min_count=2,
-            conditional_requirements=[
-                ConditionalRequirement(
-                    unless_any_principal=["Advanced Mathematics", "Basic Mathematics", "Basic Applied Mathematics"],
-                    require_o_level_subject_grades={"Basic Mathematics": "C"},
-                    message="Economics route requires mathematics support when Mathematics is not among principal subjects.",
-                )
-            ],
-        ),
-        tags=["economics", "development", "policy"],
-        source_reference="TCU guidebook 2025/26 business and economics cluster",
-    ),
-    Programme(
         code="SUA01",
         name="Bachelor of Agriculture General",
         institution_code="SUA",
@@ -2770,9 +2666,19 @@ def _merge_programmes(*groups: list[Programme]) -> list[Programme]:
 
 _PARSED_PROGRAMMES = load_parsed_programmes()
 # Parsed exports can duplicate TCU codes with noisy requirement text; curated manual rows must win on collisions.
-_CATALOG_PROGRAMMES = _merge_programmes(_PARSED_PROGRAMMES, _ADDITIONAL_PROGRAMMES, _MANUAL_PROGRAMMES)
-seed_programmes(_CATALOG_PROGRAMMES)
-PROGRAMMES: list[Programme] = load_programmes(_CATALOG_PROGRAMMES)
+_CATALOG_PROGRAMMES = filter_catalog_programmes(
+    _merge_programmes(
+        _PARSED_PROGRAMMES,
+        COLLEGE_CATALOG_PROGRAMMES,
+        _ADDITIONAL_PROGRAMMES,
+        NACTVET_OLEVEL_PROGRAMMES,
+        _MANUAL_PROGRAMMES,
+    )
+)
+if catalogue_seed_on_startup():
+    _catalogue_repo.seed_programmes(_CATALOG_PROGRAMMES)
+PROGRAMMES: list[Programme] = _catalogue_repo.load_programmes(_CATALOG_PROGRAMMES)
+refresh_from_programmes(PROGRAMMES)
 
 
 def programme_index() -> dict[str, Programme]:

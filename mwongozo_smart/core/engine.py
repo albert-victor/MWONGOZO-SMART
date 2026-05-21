@@ -4,13 +4,37 @@ import logging
 from collections import defaultdict
 from collections.abc import Iterable
 
-from mwongozo_smart.core.calculator import OLevelSummary, get_o_level_summary, get_principal_summary
+from mwongozo_smart.core.health_classification import (
+    health_bachelor_confidence_cap,
+    is_clinical_health_programme,
+    is_general_health_programme,
+)
+from mwongozo_smart.core.pool_normalize import normalize_principal_subject_pool
+from mwongozo_smart.data.institution_catalog import is_programme_allowed_for_institution
+from mwongozo_smart.core.calculator import (
+    OLevelSummary,
+    a_level_sensitive_readiness,
+    csee_division_band,
+    csee_health_award_allowed,
+    csee_o_level_entry_gate,
+    extract_csee_division,
+    get_o_level_summary,
+    get_principal_summary,
+    normalize_student_subjects,
+    o_level_health_science_eligible,
+    o_level_stem_engineering_eligible,
+)
 from mwongozo_smart.core.models import CombinationSuggestion, ConfidenceBand, Programme, ProgrammeAwardLevel, ProgrammeCategory, Recommendation, StudentResult
 from mwongozo_smart.core.rules import TCURuleEngine
 from mwongozo_smart.data.guidebook_data import PROGRAMMES
 from mwongozo_smart.data.institutions import INSTITUTIONS
 from mwongozo_smart.ml.ranking_model import FeatureVector, RuleBoostedRankingModel
-from mwongozo_smart.utils.combination_helper import infer_combination, normalize_subject_name
+from mwongozo_smart.utils.combination_helper import (
+    combination_blocks_stem_programme,
+    infer_combination,
+    normalize_subject_name,
+    resolve_student_combination,
+)
 from mwongozo_smart.utils.grade_converter import confidence_band_from_score
 
 logger = logging.getLogger(__name__)
@@ -33,8 +57,14 @@ class RecommendationEngine:
         self.ranking_model = ranking_model or RuleBoostedRankingModel()
         self.institutions = {institution.code: institution for institution in INSTITUTIONS}
 
-    def recommend(self, student: StudentResult, limit: int = 80) -> list[Recommendation]:
+    def recommend(self, student: StudentResult, limit: int = 120) -> list[Recommendation]:
         # The principal subjects are summarized once, then reused for all programmes.
+        normalize_student_subjects(student)
+        if student.pathway.value == "o_level":
+            entry_ok, entry_msg, _ = csee_o_level_entry_gate(student)
+            if not entry_ok:
+                logger.info("O-Level recommendations blocked: %s", entry_msg)
+                return []
         summary = get_principal_summary(student)
         o_summary = get_o_level_summary(student) if student.pathway.value == "o_level" else None
         ranked: list[Recommendation] = []
@@ -52,6 +82,9 @@ class RecommendationEngine:
             score = self._score(student, programme, summary.total_points, o_summary=o_summary)
             assessment.score = score
             assessment.confidence = round(self._confidence(score, programme, student, o_summary=o_summary), 2)
+            assessment.confidence = self._apply_health_division_confidence_cap(
+                assessment.confidence, student, programme
+            )
             assessment.confidence_band = ConfidenceBand(confidence_band_from_score(assessment.confidence))
             assessment.parallel_courses = self._parallel_courses(programme)
             display_student_points = o_summary.total_grade_points if o_summary else summary.total_points
@@ -72,6 +105,9 @@ class RecommendationEngine:
             ranked.append(recommendation)
 
         ranked.sort(key=lambda item: self._rank_key(student, item), reverse=True)
+        ranked = self._promote_college_health_for_weak_csee(student, ranked)
+        ranked = self._diversify_a_level_health(student, ranked)
+        ranked = self._interleave_o_level_by_category(student, ranked)
 
         for index, recommendation in enumerate(ranked[:limit], start=1):
             recommendation.rank = index
@@ -80,13 +116,35 @@ class RecommendationEngine:
 
     def review_candidates(self, student: StudentResult, limit: int = 10) -> list[Recommendation]:
         # Near-miss programmes are useful when there are no direct matches.
+        normalize_student_subjects(student)
+        if student.pathway.value == "o_level":
+            entry_ok, _entry_msg, _ = csee_o_level_entry_gate(student)
+            if not entry_ok:
+                return []
         summary = get_principal_summary(student)
         o_summary = get_o_level_summary(student) if student.pathway.value == "o_level" else None
         reviewed: list[Recommendation] = []
+        is_o_level = student.pathway.value == "o_level"
+
+        combo = resolve_student_combination(student.combination, student.a_level_subjects)
 
         for programme in self.programmes:
             if not self._programme_allowed_for_pathway(student, programme):
                 continue
+            if not is_o_level and combination_blocks_stem_programme(combo, programme.category.value):
+                continue
+            if is_o_level and programme.category == ProgrammeCategory.HEALTH:
+                health_sci_ok, _health_sci_msg = o_level_health_science_eligible(student)
+                if not health_sci_ok:
+                    continue
+            if is_o_level and programme.category in {
+                ProgrammeCategory.ENGINEERING,
+                ProgrammeCategory.TECH,
+                ProgrammeCategory.COMPUTING,
+            }:
+                stem_ok, _stem_msg = o_level_stem_engineering_eligible(student)
+                if not stem_ok:
+                    continue
             assessment = self.rule_engine.evaluate(student, programme)
             if assessment.eligible:
                 continue
@@ -94,10 +152,16 @@ class RecommendationEngine:
             score = self._score(student, programme, summary.total_points, o_summary=o_summary)
             assessment.score = score
             assessment.confidence = round(self._confidence(score, programme, student, o_summary=o_summary), 2)
+            assessment.confidence = self._apply_health_division_confidence_cap(
+                assessment.confidence, student, programme
+            )
             assessment.confidence_band = ConfidenceBand(confidence_band_from_score(assessment.confidence))
             assessment.parallel_courses = self._parallel_courses(programme)
 
-            if score < 22.0 and assessment.points_margin < -2.0:
+            if is_o_level:
+                if score < 12.0 and assessment.points_margin < -5.0:
+                    continue
+            elif score < 22.0 and assessment.points_margin < -2.0:
                 continue
 
             display_student_points = o_summary.total_grade_points if o_summary else summary.total_points
@@ -125,7 +189,7 @@ class RecommendationEngine:
 
         return reviewed[:limit]
 
-    def recommend_grouped(self, student: StudentResult, limit: int = 80) -> dict[str, list[Recommendation]]:
+    def recommend_grouped(self, student: StudentResult, limit: int = 120) -> dict[str, list[Recommendation]]:
         # Same recommendations, grouped by faculty/category section.
         grouped: dict[str, list[Recommendation]] = defaultdict(list)
         for recommendation in self.recommend(student, limit=limit):
@@ -200,13 +264,17 @@ class RecommendationEngine:
             subject_pool = req.principal_subject_pool
             pool_fit = 0.0
             if subject_pool and req.principal_pool_min_count:
-                pool_lower = {normalize_subject_name(item).lower() for item in subject_pool}
+                pool_tokens = normalize_principal_subject_pool(subject_pool) or list(subject_pool)
+                pool_lower = {normalize_subject_name(item).lower() for item in pool_tokens}
                 matched = sum(
                     1
                     for subject in student.a_level_subjects
                     if subject.principal and normalize_subject_name(subject.subject).lower() in pool_lower
                 )
-                pool_fit = min(1.0, matched / max(1, req.principal_pool_min_count))
+                effective_min = req.principal_pool_min_count
+                if programme.category == ProgrammeCategory.HEALTH and matched >= 2 and effective_min >= 3:
+                    effective_min = 2
+                pool_fit = min(1.0, matched / max(1, effective_min))
             else:
                 pool_fit = 0.35
 
@@ -238,12 +306,18 @@ class RecommendationEngine:
         elif programme.competition_tier == 4:
             combined -= 6.0
 
-        if combo == "PCB" and programme.category == ProgrammeCategory.HEALTH:
+        readiness = a_level_sensitive_readiness(student) if student.pathway.value == "a_level" else None
+        health_boost_ok = readiness is None or (
+            bool(readiness["health_science_ready"]) and float(readiness["total_points"]) >= 6.0
+        )
+        if is_general_health_programme(programme):
+            health_boost_ok = readiness is None or float(readiness["total_points"]) >= 4.5
+        if health_boost_ok and combo == "PCB" and programme.category == ProgrammeCategory.HEALTH:
             combined += 18.0 if self._is_major_health_programme(programme) else 6.0
-        elif combo in {"CBG", "CBN"} and programme.category == ProgrammeCategory.HEALTH:
-            combined += 14.0 if self._is_major_health_programme(programme) else 4.0
-        elif combo == "PCM" and programme.category == ProgrammeCategory.HEALTH:
-            combined += 8.0 if self._is_major_health_programme(programme) else 3.0
+        elif health_boost_ok and combo in {"CBG", "CBN"} and programme.category == ProgrammeCategory.HEALTH:
+            combined += 8.0 if self._is_major_health_programme(programme) else 2.0
+        elif health_boost_ok and combo == "PCM" and programme.category == ProgrammeCategory.HEALTH:
+            combined += 6.0 if self._is_major_health_programme(programme) else 2.0
 
         if region_match or institution_match:
             combined += 4.0
@@ -277,8 +351,198 @@ class RecommendationEngine:
             confidence += min(8.0, max(0, o_summary.pass_count - 4) * 1.1)
             confidence += min(5.0, max(0.0, o_summary.total_grade_points / max(1, o_summary.pass_count) - 2.5) * 2.0)
         elif student.pathway.value == "a_level":
-            confidence += 1.2
+            confidence = self._cap_a_level_confidence(confidence, student, programme, score)
+        health_cap = health_bachelor_confidence_cap(student, programme)
+        if health_cap is not None:
+            confidence = min(confidence, health_cap)
         return max(24.0, min(97.0, confidence))
+
+    def _promote_college_health_for_weak_csee(
+        self,
+        student: StudentResult,
+        ranked: list[Recommendation],
+    ) -> list[Recommendation]:
+        """Surface NACTVET/NACTE health diplomas/certificates for CSEE Division III–IV."""
+        if student.pathway.value != "o_level":
+            return ranked
+        band = csee_division_band(extract_csee_division(student))
+        if band not in {"weak", "borderline"}:
+            return ranked
+        college_health = [
+            item
+            for item in ranked
+            if item.programme.category == ProgrammeCategory.HEALTH
+            and item.programme.award_level in {ProgrammeAwardLevel.CERTIFICATE, ProgrammeAwardLevel.DIPLOMA}
+        ]
+        if not college_health:
+            return ranked
+        college_health.sort(
+            key=lambda item: (
+                0 if item.programme.award_level == ProgrammeAwardLevel.DIPLOMA else 1,
+                -item.assessment.confidence,
+            )
+        )
+        promote = college_health[:6]
+        promote_codes = {item.programme.code for item in promote}
+        remainder = [item for item in ranked if item.programme.code not in promote_codes]
+        return promote + remainder
+
+    def _apply_health_division_confidence_cap(
+        self,
+        confidence: float,
+        student: StudentResult,
+        programme: Programme,
+    ) -> float:
+        if programme.category != ProgrammeCategory.HEALTH:
+            return confidence
+        allowed, max_conf, _ = csee_health_award_allowed(student, programme.award_level.value)
+        if not allowed:
+            return confidence
+        if max_conf is not None:
+            confidence = min(confidence, max_conf)
+        tier_cap = health_bachelor_confidence_cap(student, programme)
+        if tier_cap is not None:
+            confidence = min(confidence, tier_cap)
+        return confidence
+
+    def _health_programme_family(self, programme: Programme) -> str:
+        name = programme.name.lower()
+        if is_clinical_health_programme(programme):
+            return "clinical"
+        if "environmental" in name:
+            return "environmental"
+        if "community" in name or "public health" in name:
+            return "public"
+        if "laboratory" in name or "lab " in name:
+            return "laboratory"
+        if "food" in name or "nutrition" in name:
+            return "nutrition"
+        if "management" in name or "information" in name:
+            return "management"
+        return "other"
+
+    def _diversify_a_level_health(
+        self,
+        student: StudentResult,
+        ranked: list[Recommendation],
+    ) -> list[Recommendation]:
+        if student.pathway.value != "a_level":
+            return ranked
+        health_items = [item for item in ranked if item.programme.category == ProgrammeCategory.HEALTH]
+        if len(health_items) < 6:
+            return ranked
+        non_health = [item for item in ranked if item.programme.category != ProgrammeCategory.HEALTH]
+        by_family: dict[str, list[Recommendation]] = {}
+        for item in health_items:
+            family = self._health_programme_family(item.programme)
+            by_family.setdefault(family, []).append(item)
+        for bucket in by_family.values():
+            bucket.sort(key=lambda item: self._rank_key(student, item), reverse=True)
+
+        institution_seen: dict[str, int] = {}
+        spread: list[Recommendation] = []
+        families = sorted(by_family.keys(), key=lambda key: len(by_family[key]), reverse=True)
+        exhausted = False
+        while not exhausted and len(spread) < len(health_items):
+            exhausted = True
+            for family in families:
+                bucket = by_family.get(family) or []
+                if not bucket:
+                    continue
+                pick_index = 0
+                while pick_index < len(bucket):
+                    candidate = bucket[pick_index]
+                    code = candidate.programme.institution_code.lower()
+                    if institution_seen.get(code, 0) >= 2:
+                        pick_index += 1
+                        continue
+                    spread.append(bucket.pop(pick_index))
+                    institution_seen[code] = institution_seen.get(code, 0) + 1
+                    exhausted = False
+                    break
+                else:
+                    if bucket:
+                        spread.append(bucket.pop(0))
+                        exhausted = False
+        spread_codes = {item.programme.code for item in spread}
+        tail = [item for item in health_items if item.programme.code not in spread_codes]
+        merged_health = spread + tail
+        return merged_health + non_health
+
+    def _interleave_o_level_by_category(
+        self,
+        student: StudentResult,
+        ranked: list[Recommendation],
+    ) -> list[Recommendation]:
+        """Spread O-Level results across categories so ICT does not dominate every list."""
+        if student.pathway.value != "o_level" or len(ranked) < 8:
+            return ranked
+        import hashlib
+        import random
+        from collections import defaultdict
+
+        buckets: dict[str, list[Recommendation]] = defaultdict(list)
+        for item in ranked:
+            buckets[item.programme.category.value].append(item)
+        categories = list(buckets.keys())
+        fingerprint = "|".join(
+            [
+                extract_csee_division(student) or "",
+                str(sorted((s.subject, s.grade) for s in student.o_level_subjects[:8])),
+            ]
+        )
+        seed = int(hashlib.sha256(fingerprint.encode("utf-8")).hexdigest()[:16], 16)
+        rng = random.Random(seed)
+        rng.shuffle(categories)
+        merged: list[Recommendation] = []
+        while True:
+            moved = False
+            for cat in categories:
+                if buckets[cat]:
+                    merged.append(buckets[cat].pop(0))
+                    moved = True
+            if not moved:
+                break
+        return merged
+
+    def _cap_a_level_confidence(
+        self,
+        confidence: float,
+        student: StudentResult,
+        programme: Programme,
+        score: float,
+    ) -> float:
+        summary = get_principal_summary(student)
+        margin = summary.total_points - programme.admission_requirement.minimum_total_points
+        sensitive = programme.category in {
+            ProgrammeCategory.HEALTH,
+            ProgrammeCategory.ENGINEERING,
+            ProgrammeCategory.TECH,
+            ProgrammeCategory.COMPUTING,
+        }
+        if summary.total_points < 4.5:
+            return min(confidence, 30.0)
+        if sensitive:
+            readiness = a_level_sensitive_readiness(student)
+            if summary.total_points < 6.0:
+                confidence = min(confidence, 36.0)
+            elif margin <= 1.0:
+                confidence = min(confidence, 42.0)
+            elif margin <= 2.0:
+                confidence = min(confidence, 50.0)
+            if programme.category == ProgrammeCategory.HEALTH and not readiness["health_science_ready"]:
+                confidence = min(confidence, 38.0)
+            if programme.category in {
+                ProgrammeCategory.ENGINEERING,
+                ProgrammeCategory.TECH,
+                ProgrammeCategory.COMPUTING,
+            } and not readiness["stem_ready"]:
+                confidence = min(confidence, 38.0)
+        elif margin <= 1.0:
+            confidence = min(confidence, 55.0)
+        elif score < 45.0:
+            confidence = min(confidence, 58.0)
+        return confidence
 
     def _rank_key(self, student: StudentResult, recommendation: Recommendation) -> tuple[float, float, float, float, float]:
         # Show the strongest confidence first, then use score and pathway bias as tie-breakers.
@@ -296,6 +560,10 @@ class RecommendationEngine:
         name = programme.name.lower()
         tags = {tag.lower() for tag in programme.tags}
         bias = 0.0
+        readiness = a_level_sensitive_readiness(student) if student.pathway.value == "a_level" else None
+        health_bias_ok = readiness is None or (
+            bool(readiness["health_science_ready"]) and float(readiness["total_points"]) >= 6.0
+        )
 
         if student.pathway.value == "o_level":
             bias += self._o_level_subject_bias(student, programme)
@@ -323,8 +591,8 @@ class RecommendationEngine:
                 bias -= 4.0
 
         if combo in science_first_codes:
-            if programme.category == ProgrammeCategory.HEALTH:
-                bias += 20.0 if self._is_major_health_programme(programme) else 6.0
+            if programme.category == ProgrammeCategory.HEALTH and health_bias_ok:
+                bias += 12.0 if self._is_major_health_programme(programme) else 4.0
             elif "education" in name and "science" in name:
                 bias += 16.0
             elif programme.category in {ProgrammeCategory.SCIENCE, ProgrammeCategory.ENGINEERING, ProgrammeCategory.TECH, ProgrammeCategory.COMPUTING}:
@@ -334,12 +602,15 @@ class RecommendationEngine:
             ):
                 bias += 4.0
 
-        if combo == "PCB" and programme.category == ProgrammeCategory.HEALTH:
+        if health_bias_ok and combo == "PCB" and programme.category == ProgrammeCategory.HEALTH:
             bias += 22.0 if self._is_major_health_programme(programme) else 8.0
-        elif combo in {"CBG", "CBN"} and programme.category == ProgrammeCategory.HEALTH:
-            bias += 14.0 if self._is_major_health_programme(programme) else 4.0
-        elif combo == "PCM" and programme.category == ProgrammeCategory.HEALTH:
-            bias += 8.0 if self._is_major_health_programme(programme) else 3.0
+        elif health_bias_ok and combo in {"CBG", "CBN"} and programme.category == ProgrammeCategory.HEALTH:
+            if is_general_health_programme(programme):
+                bias += 14.0
+            else:
+                bias += 8.0 if self._is_major_health_programme(programme) else 4.0
+        elif health_bias_ok and combo == "PCM" and programme.category == ProgrammeCategory.HEALTH:
+            bias += 4.0 if self._is_major_health_programme(programme) else 1.0
 
         if combo in economics_first_codes:
             if self._is_economics_programme(programme):
@@ -350,11 +621,19 @@ class RecommendationEngine:
             else:
                 bias -= 3.0
 
-        if combo in {"HKL", "HGL", "HGK"}:
+        if combo in {"HKL", "HGL", "HGK", "HGE"}:
             if programme.category == ProgrammeCategory.ARTS:
-                bias += 2.0
-            else:
-                bias -= 2.0
+                bias += 6.0
+            elif programme.category in {
+                ProgrammeCategory.HEALTH,
+                ProgrammeCategory.SCIENCE,
+                ProgrammeCategory.ENGINEERING,
+                ProgrammeCategory.COMPUTING,
+                ProgrammeCategory.TECH,
+            }:
+                bias -= 40.0
+            elif programme.category in {ProgrammeCategory.BUSINESS, ProgrammeCategory.ACCOUNTING_FINANCE, ProgrammeCategory.LAW, ProgrammeCategory.EDUCATION}:
+                bias += 4.0
 
         return bias
 
@@ -366,7 +645,13 @@ class RecommendationEngine:
         bias = 0.0
         science_core = {"physics", "chemistry", "biology"} & oset
         if programme.category == ProgrammeCategory.HEALTH and len(science_core) >= 2:
-            bias += 16.0 if self._is_major_health_programme(programme) else 8.0
+            band = csee_division_band(extract_csee_division(student))
+            if programme.award_level == ProgrammeAwardLevel.DIPLOMA and band in {"weak", "borderline"}:
+                bias += 38.0 if self._is_major_health_programme(programme) else 26.0
+            elif programme.award_level == ProgrammeAwardLevel.CERTIFICATE and band in {"weak", "borderline"}:
+                bias += 24.0
+            else:
+                bias += 16.0 if self._is_major_health_programme(programme) else 8.0
         elif programme.category == ProgrammeCategory.ENGINEERING and (
             "basic mathematics" in oset or "physics" in oset or "chemistry" in oset
         ):
@@ -374,7 +659,7 @@ class RecommendationEngine:
         elif programme.category in {ProgrammeCategory.COMPUTING, ProgrammeCategory.TECH} and (
             "computer science" in oset or "basic mathematics" in oset
         ):
-            bias += 9.0
+            bias += 3.0
         elif programme.category in {ProgrammeCategory.BUSINESS, ProgrammeCategory.ACCOUNTING_FINANCE} and (
             {"commerce", "book keeping", "economics", "accountancy"} & oset
         ):
@@ -390,8 +675,7 @@ class RecommendationEngine:
         return bias
 
     def _student_combination(self, student: StudentResult) -> str:
-        combo = student.combination or infer_combination(subject.subject for subject in student.a_level_subjects)
-        return "".join(ch for ch in (combo or "").upper() if ch.isalpha())
+        return resolve_student_combination(student.combination, student.a_level_subjects)
 
     def _parallel_courses(self, programme: Programme) -> list[str]:
         # Offer a short list of similar programmes to show parallel pathways.
@@ -409,11 +693,22 @@ class RecommendationEngine:
         return similar
 
     def _programme_allowed_for_pathway(self, student: StudentResult, programme: Programme) -> bool:
+        if not is_programme_allowed_for_institution(programme):
+            return False
         # O-Level applicants should only see certificate and diploma routes.
         if student.pathway.value == "o_level" and programme.award_level == ProgrammeAwardLevel.BACHELOR:
             return False
-        # A-Level applicants should be prioritized to bachelor routes only.
-        if student.pathway.value == "a_level" and programme.award_level != ProgrammeAwardLevel.BACHELOR:
+        if student.pathway.value == "a_level":
+            if programme.award_level == ProgrammeAwardLevel.BACHELOR:
+                return True
+            band = csee_division_band(extract_csee_division(student))
+            if band in {"weak", "borderline"} and programme.award_level in {
+                ProgrammeAwardLevel.CERTIFICATE,
+                ProgrammeAwardLevel.DIPLOMA,
+            }:
+                if programme.category == ProgrammeCategory.HEALTH:
+                    allowed, _, _ = csee_health_award_allowed(student, programme.award_level.value)
+                    return allowed
             return False
         return True
 

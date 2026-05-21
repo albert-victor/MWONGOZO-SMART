@@ -1,0 +1,99 @@
+          <div id="loanDashboard" class="loan-dashboard hidden" aria-live="polite">
+            <nav class="loan-subnav" id="loanTrackerSubnav" role="tablist" aria-label="Dashibodi ya demo"></nav>
+
+            <div class="loan-tracker-view is-active" data-tracker-view="summary">
+              <div class="card glass loan-today-card" id="loanTodayCard"></div>
+              <div class="loan-metrics-row" id="loanMetricsRow"></div>
+              <div class="card glass">
+                <div class="section-title">
+                  <h3><i class="fa-solid fa-table-list" aria-hidden="true"></i> <span data-i18n="loan_funding_table">Funding Table</span></h3>
+                </div>
+                <div class="loan-table-wrap">
+                  <table class="loan-table" id="loanFundingTable">
+                    <thead>
+                      <tr>
+                        <th data-i18n="loan_col_ref">HESLB ref</th>
+                        <th data-i18n="loan_col_stage">Stage</th>
+                        <th data-i18n="loan_col_complete">Completion</th>
+                        <th data-i18n="loan_col_batch">Batch</th>
+                        <th data-i18n="loan_col_prob">Probability</th>
+                        <th data-i18n="loan_col_alerts">Alerts</th>
+                        <th data-i18n="loan_col_appeal">Appeal</th>
+                      </tr>
+                    </thead>
+                    <tbody id="loanFundingTableBody"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <div class="loan-tracker-view" data-tracker-view="progress">
+              <div class="loan-dash-grid">
+                <div class="card glass loan-panel loan-panel--wide">
+                  <h3><i class="fa-solid fa-route" aria-hidden="true"></i> <span data-i18n="loan_timeline">Current Stage Timeline</span></h3>
+                  <ol class="loan-timeline" id="loanTimeline"></ol>
+                </div>
+                <div class="card glass loan-panel">
+                  <h3><i class="fa-solid fa-chart-pie" aria-hidden="true"></i> <span data-i18n="loan_completion">Application Completion</span></h3>
+                  <div id="loanCompletionBlock"></div>
+                </div>
+                <div class="card glass loan-panel">
+                  <h3><i class="fa-solid fa-layer-group" aria-hidden="true"></i> <span data-i18n="loan_batch_pred">Predicted Batch Assignment</span></h3>
+                  <div id="loanBatchBlock"></div>
+                </div>
+                <div class="card glass loan-panel">
+                  <h3><i class="fa-solid fa-gauge-high" aria-hidden="true"></i> <span data-i18n="loan_confidence">Estimated Funding Confidence</span></h3>
+                  <div id="loanConfidenceBlock"></div>
+                </div>
+                <div class="card glass loan-panel">
+                  <h3><i class="fa-solid fa-graduation-cap" aria-hidden="true"></i> <span data-i18n="loan_course_priority">Course Funding Priority</span></h3>
+                  <div id="loanCoursePriority"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="loan-tracker-view" data-tracker-view="profile">
+              <div class="loan-dash-grid">
+                <div class="card glass loan-panel">
+                  <h3><i class="fa-solid fa-id-card" aria-hidden="true"></i> <span data-i18n="loan_citizenship">NIDA / Citizenship</span></h3>
+                  <div id="loanCitizenshipBlock"></div>
+                </div>
+                <div class="card glass loan-panel">
+                  <h3><i class="fa-solid fa-users" aria-hidden="true"></i> <span data-i18n="loan_special_panel">Special categories</span></h3>
+                  <div id="loanSpecialBlock"></div>
+                </div>
+                <div class="card glass loan-panel loan-panel--wide">
+                  <h3><i class="fa-solid fa-bell" aria-hidden="true"></i> <span data-i18n="loan_alerts">Smart Alerts &amp; Action Center</span></h3>
+                  <ul class="loan-alert-list" id="loanAlertList"></ul>
+                  <ul class="loan-deadline-list" id="loanDeadlineList"></ul>
+                </div>
+              </div>
+            </div>
+
+            <div class="loan-tracker-view" data-tracker-view="support">
+              <div class="loan-dash-grid">
+                <div class="card glass loan-panel">
+                  <h3><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> <span data-i18n="loan_risks">Common Mistakes Prevention</span></h3>
+                  <ul class="loan-risk-list" id="loanRiskList"></ul>
+                  <ul class="loan-mistake-list" id="loanMistakeList"></ul>
+                </div>
+                <div class="card glass loan-panel">
+                  <h3><i class="fa-solid fa-hand-holding-heart" aria-hidden="true"></i> <span data-i18n="loan_scholarships">Scholarship &amp; Alternative Funding</span></h3>
+                  <div id="loanScholarshipBlock"></div>
+                </div>
+                <div class="card glass loan-panel">
+                  <h3><i class="fa-solid fa-file-circle-question" aria-hidden="true"></i> <span data-i18n="loan_appeal">Appeal Guidance Assistant</span></h3>
+                  <div id="loanAppealBlock"></div>
+                </div>
+                <div class="card glass loan-panel">
+                  <h3><i class="fa-solid fa-people-roof" aria-hidden="true"></i> <span data-i18n="loan_parent">Parent / Guardian Guidance</span></h3>
+                  <ul class="loan-guidance-list" id="loanParentList"></ul>
+                  <p class="small muted" data-i18n="loan_no_upload">Hakuna upakiaji hapa — mwongozo tu.</p>
+                </div>
+                <div class="card glass loan-panel loan-panel--wide">
+                  <h3><i class="fa-solid fa-lightbulb" aria-hidden="true"></i> <span data-i18n="loan_insights">Success Insights</span></h3>
+                  <ul class="loan-insight-list" id="loanInsightList"></ul>
+                </div>
+              </div>
+            </div>
+          </div>

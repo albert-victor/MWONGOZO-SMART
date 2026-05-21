@@ -6,7 +6,12 @@ from typing import Any
 
 import httpx
 
+from mwongozo_smart.core.calculator import normalize_csee_division
 from mwongozo_smart.core.models import AdmissionPathway, ALevelScheme, StudentResult, SubjectGrade
+
+
+def normalize_csee_division_for_api(division: str | None) -> str | None:
+    return normalize_csee_division(division)
 from mwongozo_smart.exam_lookup.cache import NectaLookupCache
 from mwongozo_smart.exam_lookup.crawler import DEFAULT_BASE_URL, NectaCseeCrawler
 from mwongozo_smart.exam_lookup.models import NectaCseeResult
@@ -53,6 +58,7 @@ def necta_result_to_student_payload(result: NectaCseeResult) -> dict[str, Any]:
         "a_level_scheme": "2016_plus",
         "a_level_subjects": [],
         "o_level_subjects": o_level_subjects,
+        "csee_division": normalize_csee_division_for_api(result.division),
         "combination": None,
         "preferred_regions": [],
         "preferred_institutions": [],
@@ -85,6 +91,7 @@ def necta_csee_result_to_student_result(
         preferred_institutions=preferred_institutions or [],
         language=language,
         equivalent_qualification=None,
+        csee_division=normalize_csee_division(result.division),
         notes=notes,
     )
 

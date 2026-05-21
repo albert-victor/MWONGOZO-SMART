@@ -1,0 +1,106 @@
+/* Logged-in: single initial avatar only (no name/email in chrome) */
+.auth-user-menu {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.auth-user-menu[hidden],
+.auth-guest-actions[hidden] {
+  display: none !important;
+}
+
+.auth-guest-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.auth-user-menu__trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.auth-user-menu__trigger:hover,
+.auth-user-menu.is-open .auth-user-menu__trigger {
+  transform: translateY(-1px);
+}
+
+.auth-user-menu__trigger:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.auth-user-menu__avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-size: 0.9rem;
+  font-weight: 800;
+  color: #061018;
+  background: linear-gradient(145deg, var(--accent), var(--accent-2));
+  border: 2px solid rgba(255, 255, 255, 0.22);
+  box-shadow: 0 4px 12px rgba(45, 212, 191, 0.28);
+  line-height: 1;
+}
+
+.auth-user-menu__avatar--admin {
+  background: linear-gradient(145deg, var(--accent-warm), #fbbf24);
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.28);
+}
+
+.auth-user-menu__name,
+.auth-user-menu__chevron,
+.auth-user-menu__email {
+  display: none !important;
+}
+
+.auth-user-menu__dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  padding: 0.25rem;
+  border-radius: 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  z-index: 120;
+}
+
+.auth-user-menu__dropdown[hidden] {
+  display: none !important;
+}
+
+.auth-user-menu__dropdown button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.auth-user-menu__dropdown button:hover {
+  background: rgba(45, 212, 191, 0.12);
+  color: var(--accent);
+}

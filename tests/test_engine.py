@@ -18,6 +18,19 @@ def test_engine_returns_ranked_recommendations():
     assert recommendations[0].assessment.confidence >= recommendations[-1].assessment.confidence
 
 
+def test_o_level_three_passes_can_still_get_college_recommendations():
+    student = StudentResult(
+        pathway=AdmissionPathway.O_LEVEL,
+        o_level_subjects=[
+            SubjectGrade(subject="Mathematics", grade="D", level="o_level"),
+            SubjectGrade(subject="English Language", grade="D", level="o_level"),
+            SubjectGrade(subject="Kiswahili", grade="D", level="o_level"),
+        ],
+    )
+    recommendations = RecommendationEngine().recommend(student, limit=50)
+    assert len(recommendations) >= 5
+
+
 def test_o_level_recommendations_rank_by_confidence_and_use_csee_points():
     student = StudentResult(
         pathway=AdmissionPathway.O_LEVEL,
@@ -29,8 +42,8 @@ def test_o_level_recommendations_rank_by_confidence_and_use_csee_points():
             SubjectGrade(subject="Physics", grade="C", level="o_level"),
         ],
     )
-    recommendations = RecommendationEngine().recommend(student, limit=100)
-    assert len(recommendations) >= 8
+    recommendations = RecommendationEngine().recommend(student, limit=150)
+    assert len(recommendations) >= 25
     assert recommendations[0].assessment.confidence >= recommendations[-1].assessment.confidence
     assert recommendations[0].student_points > 0
 

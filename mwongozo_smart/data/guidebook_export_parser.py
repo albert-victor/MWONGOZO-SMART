@@ -7,11 +7,19 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from mwongozo_smart.core.models import AdmissionRequirement, ConditionalRequirement, Programme, ProgrammeAwardLevel, ProgrammeCategory
+from mwongozo_smart.data.institution_catalog import apply_institution_catalog_rules
 from mwongozo_smart.utils.combination_helper import normalize_subject_name
 
 
-_HEADING_RE = re.compile(r"^(?P<name>.+?) \((?P<code>[A-Z0-9]{2,10})\), (?P<city>.+)$")
+_HEADING_RE = re.compile(
+    r"^(?P<name>.+?) \((?P<code>[A-Za-z0-9]{2,12})\), (?P<city>[^.(\d]+?)(?:\.+\d*)?\s*$"
+)
+
+
+def _normalize_institution_code(raw: str) -> str:
+    return raw.strip().upper().replace(" ", "")
 _CODE_RE = re.compile(r"^(?P<code>[A-Z]{2,5}\d{2,3})\s+(?P<rest>.+)$")
+_NUMBERED_ENTRY_RE = re.compile(r"^\d+\.\s*(.*)$")
 
 _HEADER_MARKERS = {
     "sn",
@@ -81,21 +89,40 @@ def default_guidebook_json_paths() -> list[Path]:
     env_path = os.getenv("MWONGOZO_GUIDEBOOK_JSON")
     if env_path:
         candidates.append(Path(env_path))
+    root = Path(__file__).resolve().parent.parent.parent
+    data_dir = root / "data" / "guidebooks"
     candidates.extend(
         [
+            data_dir / "guidebook_2025_2026.json",
+            data_dir / "guidebook_2024_2025.json",
+            data_dir / "guidebook_2023_2024.json",
+            root / "data" / "guidebook_2025_2026.json",
+            Path.cwd() / "data" / "guidebooks" / "guidebook_2025_2026.json",
             Path.cwd() / "data" / "guidebook_2025_2026.json",
             Path.cwd() / "guidebook_2025_2026.json",
             Path.home() / "Downloads" / "Admission Guidebook for Holders of Secondary School Qualifications_2025_2026.json",
+            Path.home() / "Downloads" / "Admission Guidebook for Holders of Secondary School Qualifications_2024_2025.json",
+            Path.home() / "Downloads" / "Admission Guidebook for Holders of Secondary School Qualifications_2023_2024.json",
         ]
     )
-    return candidates
+    seen: set[str] = set()
+    unique: list[Path] = []
+    for candidate in candidates:
+        key = str(candidate.resolve()) if candidate.exists() else str(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(candidate)
+    return unique
+
+
+def find_guidebook_json_paths() -> list[Path]:
+    return [path for path in default_guidebook_json_paths() if path.exists()]
 
 
 def find_guidebook_json_path() -> Path | None:
-    for candidate in default_guidebook_json_paths():
-        if candidate.exists():
-            return candidate
-    return None
+    paths = find_guidebook_json_paths()
+    return paths[0] if paths else None
 
 
 def load_guidebook_lines(path: str | Path) -> list[str]:
@@ -105,12 +132,30 @@ def load_guidebook_lines(path: str | Path) -> list[str]:
 
 
 def load_parsed_programmes(path: str | Path | None = None) -> list[Programme]:
-    export_path = Path(path) if path is not None else find_guidebook_json_path()
-    if export_path is None or not export_path.exists():
+    if path is not None:
+        export_paths = [Path(path)]
+    else:
+        export_paths = find_guidebook_json_paths()
+    if not export_paths:
         return []
-    lines = load_guidebook_lines(export_path)
-    drafts = parse_guidebook_lines(lines)
-    return [draft.to_programme() for draft in drafts]
+    merged: dict[str, Programme] = {}
+    for export_path in export_paths:
+        if not export_path.exists():
+            continue
+        lines = load_guidebook_lines(export_path)
+        drafts = parse_guidebook_lines(lines)
+        for draft in drafts:
+            programme = draft.to_programme()
+            fixed = apply_institution_catalog_rules(programme)
+            if fixed is not None:
+                merged[fixed.code] = fixed
+    return list(merged.values())
+
+
+def _joined_name_valid(name_lines: list[str]) -> bool:
+    if not name_lines:
+        return False
+    return _is_valid_programme_name(_normalize_joined_lines(name_lines))
 
 
 def parse_guidebook_lines(lines: list[str]) -> list[ParsedProgrammeDraft]:
@@ -120,17 +165,37 @@ def parse_guidebook_lines(lines: list[str]) -> list[ParsedProgrammeDraft]:
     current_code: str | None = None
     current_req_lines: list[str] = []
     pending_name_lines: list[str] = []
+    numbered_name_parts: list[str] = []
+    name_queue: list[list[str]] = []
+
+    def enqueue_current_name() -> None:
+        nonlocal current_name_lines
+        if _joined_name_valid(current_name_lines):
+            name_queue.append(current_name_lines[:])
+        current_name_lines = []
+
+    def take_name_lines() -> list[str]:
+        nonlocal current_name_lines, numbered_name_parts
+        if name_queue:
+            return name_queue.pop(0)
+        if current_name_lines:
+            lines = current_name_lines[:]
+            current_name_lines = []
+            return lines
+        return _numbered_name_lines(numbered_name_parts)
 
     def flush_current() -> None:
-        nonlocal current_name_lines, current_code, current_req_lines, pending_name_lines
-        if current_heading and current_code and current_name_lines:
-            draft = _build_draft(current_heading, current_code, current_name_lines, current_req_lines)
+        nonlocal current_name_lines, current_code, current_req_lines, pending_name_lines, numbered_name_parts
+        name_lines = take_name_lines()
+        if current_heading and current_code and name_lines:
+            draft = _build_draft(current_heading, current_code, name_lines, current_req_lines)
             if draft is not None:
                 drafts.append(draft)
         current_name_lines = []
         current_code = None
         current_req_lines = []
         pending_name_lines = []
+        numbered_name_parts = []
 
     for raw_line in lines:
         line = raw_line.strip()
@@ -139,17 +204,23 @@ def parse_guidebook_lines(lines: list[str]) -> list[ParsedProgrammeDraft]:
 
         heading_match = _HEADING_RE.match(line)
         if heading_match:
+            next_code = _normalize_institution_code(heading_match.group("code"))
+            if current_heading and current_heading[1] == next_code:
+                continue
             flush_current()
+            city = heading_match.group("city").strip()
             current_heading = (
                 heading_match.group("name").strip(),
-                heading_match.group("code").strip(),
-                heading_match.group("city").strip(),
-                heading_match.group("city").strip(),
+                next_code,
+                city,
+                city,
             )
             current_name_lines = []
             current_code = None
             current_req_lines = []
             pending_name_lines = []
+            numbered_name_parts = []
+            name_queue = []
             continue
 
         if current_heading is None:
@@ -159,14 +230,31 @@ def parse_guidebook_lines(lines: list[str]) -> list[ParsedProgrammeDraft]:
         if _is_footer_or_header(line):
             continue
 
+        numbered_match = _NUMBERED_ENTRY_RE.match(line)
+        if numbered_match:
+            lead = numbered_match.group(1).strip()
+            if lead:
+                flush_current()
+                numbered_name_parts = []
+                if _looks_like_name_start(lead):
+                    numbered_name_parts.append(lead)
+            continue
+
         code_match = _CODE_RE.match(line)
         if code_match:
             if current_code is None:
+                if _joined_name_valid(current_name_lines):
+                    enqueue_current_name()
+                elif current_name_lines:
+                    current_name_lines = []
+                if not name_queue and numbered_name_parts:
+                    numbered_name_parts = []
                 current_code = code_match.group("code").strip()
                 current_req_lines = [_clean_req_fragment(code_match.group("rest"))]
             else:
-                if current_name_lines:
-                    draft = _build_draft(current_heading, current_code, current_name_lines, current_req_lines)
+                name_lines = take_name_lines()
+                if name_lines:
+                    draft = _build_draft(current_heading, current_code, name_lines, current_req_lines)
                     if draft is not None:
                         drafts.append(draft)
                 current_name_lines = pending_name_lines[:] if pending_name_lines else []
@@ -176,8 +264,14 @@ def parse_guidebook_lines(lines: list[str]) -> list[ParsedProgrammeDraft]:
             continue
 
         if current_code is None:
-            if not current_name_lines and _looks_like_name_start(line):
-                current_name_lines.append(line)
+            if numbered_name_parts and not _looks_like_requirement_line(line):
+                if _looks_like_name_start(line) or _looks_like_name_continuation(line) or len(line.split()) <= 6:
+                    numbered_name_parts.append(line)
+                continue
+            if _looks_like_name_start(line):
+                if _joined_name_valid(current_name_lines):
+                    enqueue_current_name()
+                current_name_lines = [line]
             elif current_name_lines and _looks_like_name_continuation(line):
                 current_name_lines.append(line)
             continue
@@ -194,10 +288,12 @@ def parse_guidebook_lines(lines: list[str]) -> list[ParsedProgrammeDraft]:
             current_req_lines.append(line)
             continue
 
-    if current_heading and current_code and current_name_lines:
-        draft = _build_draft(current_heading, current_code, current_name_lines, current_req_lines)
-        if draft is not None:
-            drafts.append(draft)
+    if current_heading and current_code:
+        name_lines = take_name_lines()
+        if name_lines:
+            draft = _build_draft(current_heading, current_code, name_lines, current_req_lines)
+            if draft is not None:
+                drafts.append(draft)
 
     return drafts
 
@@ -228,8 +324,51 @@ def _looks_like_name_continuation(line: str) -> bool:
     lower = line.lower()
     if any(token in lower for token in _REQUIREMENT_HINTS):
         return False
+    if lower.startswith(("in the following", "following subjects", "advanced geography")):
+        return False
+    if lower.startswith("in ") and ("subject" in lower or "following" in lower):
+        return False
     if lower.startswith(("in ", "and ", "of ", "for ", "with ")):
         return True
+    token = lower.rstrip(" ,.")
+    if len(line.split()) == 1 and token in {
+        "advanced",
+        "geography",
+        "history",
+        "economics",
+        "mathematics",
+        "english",
+        "kiswahili",
+        "accountancy",
+        "commerce",
+        "physics",
+        "chemistry",
+        "biology",
+        "agriculture",
+        "nutrition",
+    }:
+        return False
+    if line.endswith(",") and token in {
+        "geography",
+        "history",
+        "economics",
+        "mathematics",
+        "english",
+        "kiswahili",
+        "accountancy",
+        "commerce",
+        "physics",
+        "chemistry",
+        "biology",
+        "agriculture",
+        "nutrition",
+        "procurement",
+        "insurance",
+        "finance",
+        "banking",
+        "marketing",
+    }:
+        return False
     if len(line.split()) <= 4 and not any(ch.isdigit() for ch in line) and "," not in line:
         return True
     return False
@@ -322,9 +461,20 @@ def _competition_tier(category: ProgrammeCategory, name: str) -> int:
 
 def _award_level_for(name: str) -> ProgrammeAwardLevel:
     lower = name.lower()
-    if lower.startswith("certificate in") or lower.startswith("technician certificate in"):
+    if (
+        lower.startswith("certificate in")
+        or lower.startswith("technician certificate in")
+        or lower.startswith("basic technician certificate")
+        or lower.startswith("nta level 4")
+        or lower.startswith("nta level 5")
+    ):
         return ProgrammeAwardLevel.CERTIFICATE
-    if lower.startswith("diploma in") or lower.startswith("ordinary diploma in"):
+    if (
+        lower.startswith("diploma in")
+        or lower.startswith("ordinary diploma in")
+        or lower.startswith("basic technician diploma")
+        or lower.startswith("nta level 6")
+    ):
         return ProgrammeAwardLevel.DIPLOMA
     if lower.startswith("doctor of") or lower.startswith("master of"):
         return ProgrammeAwardLevel.POSTGRADUATE
@@ -540,6 +690,15 @@ def _is_valid_programme_name(name: str) -> bool:
 def _normalize_joined_lines(lines: list[str]) -> str:
     text = " ".join(line.strip() for line in lines if line.strip())
     return " ".join(text.split())
+
+
+def _numbered_name_lines(parts: list[str]) -> list[str]:
+    if not parts:
+        return []
+    joined = _normalize_joined_lines(parts)
+    if not joined:
+        return []
+    return [joined]
 
 
 def _infer_tags(name: str, req_text: str, category: ProgrammeCategory) -> list[str]:

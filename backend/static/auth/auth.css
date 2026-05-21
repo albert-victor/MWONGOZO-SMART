@@ -1,0 +1,5 @@
+/* Modular auth UI — uses landing design tokens from styles.css */
+@import url("./auth-layout.css");
+@import url("./auth-card.css?v=20260519s");
+@import url("./auth-animations.css");
+@import url("./auth-user-menu.css");

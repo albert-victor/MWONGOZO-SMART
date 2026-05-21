@@ -26,11 +26,36 @@ _FUNDING_PRIORITY_BY_CATEGORY: dict[str, int] = {
 }
 
 _COMMON_MISTAKES: list[dict[str, str]] = [
-    {"title": "Names do not match", "detail": "Names in certificates differ from NIDA/NIN spelling."},
-    {"title": "Wrong index number", "detail": "NECTA index number format is incorrect or belongs to another student."},
-    {"title": "Blurred documents", "detail": "Uploaded files are unreadable due to blur or low light."},
-    {"title": "Missing guardian verification", "detail": "Guardian identity or supporting documents are incomplete."},
-    {"title": "Late submission", "detail": "Application was submitted after the HESLB or institution deadline."},
+    {
+        "title": "Names do not match",
+        "title_sw": "Majina hayalingani",
+        "detail": "Names in certificates differ from NIDA/NIN spelling.",
+        "detail_sw": "Majina kwenye vyeti havilingani na NIDA/NIN.",
+    },
+    {
+        "title": "Wrong index number",
+        "title_sw": "Nambari ya mtihani si sahihi",
+        "detail": "NECTA index number format is incorrect or belongs to another student.",
+        "detail_sw": "Muundo wa nambari ya NECTA si sahihi au ni ya mwanafunzi mwingine.",
+    },
+    {
+        "title": "Blurred documents",
+        "title_sw": "Nyaraka zisizo wazi",
+        "detail": "Uploaded files are unreadable due to blur or low light.",
+        "detail_sw": "Faili zilizopakiwa hazisomeki kwa ukungu au mwanga hafifu.",
+    },
+    {
+        "title": "Missing guardian verification",
+        "title_sw": "Uthibitisho wa mzazi/mlezi haupo",
+        "detail": "Guardian identity or supporting documents are incomplete.",
+        "detail_sw": "Utambulisho wa mzazi/mlezi au nyaraka za msaada hazijakamilika.",
+    },
+    {
+        "title": "Late submission",
+        "title_sw": "Ucheleweshaji wa uwasilishaji",
+        "detail": "Application was submitted after the HESLB or institution deadline.",
+        "detail_sw": "Maombi yamewasilishwa baada ya muda uliowekwa na HESLB au chuo.",
+    },
 ]
 
 
@@ -352,8 +377,20 @@ def timeline(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return output
 
 
-def common_mistakes() -> list[dict[str, str]]:
-    return list(_COMMON_MISTAKES)
+def common_mistakes(language: str = "en") -> list[dict[str, str]]:
+    lang = "sw" if str(language).lower() == "sw" else "en"
+    output: list[dict[str, str]] = []
+    for item in _COMMON_MISTAKES:
+        if lang == "sw":
+            output.append(
+                {
+                    "title": item.get("title_sw") or item["title"],
+                    "detail": item.get("detail_sw") or item["detail"],
+                }
+            )
+        else:
+            output.append({"title": item["title"], "detail": item["detail"]})
+    return output
 
 
 def appeal_guidance(rejection_reasons: list[str]) -> dict[str, Any]:

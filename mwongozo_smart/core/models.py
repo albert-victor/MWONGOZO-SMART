@@ -208,6 +208,7 @@ class StudentResult(BaseModel):
     preferred_institutions: list[str] = Field(default_factory=list)
     language: str = "both"
     equivalent_qualification: str | None = None
+    csee_division: str | None = None
     notes: list[str] = Field(default_factory=list)
 
     @field_validator("combination")

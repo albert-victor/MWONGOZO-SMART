@@ -36,21 +36,736 @@
   var toastRoot = document.getElementById("toastRoot");
   var modalRoot = document.getElementById("modalRoot");
   var metaStatsEl = document.getElementById("metaStats");
+  var homeOverviewStatsEl = document.getElementById("homeOverviewStats");
+  var recentActivityListEl = document.getElementById("recentActivityList");
+  var savedProgrammesListEl = document.getElementById("savedProgrammesList");
+  var savedProgrammesPageListEl = document.getElementById("savedProgrammesPageList");
+  var savedRecommendationsListEl = document.getElementById("savedRecommendationsList");
+  var savedRecoCountEl = document.getElementById("savedRecoCount");
+  var savedProgCountEl = document.getElementById("savedProgCount");
+  var savedGuestGateEl = document.getElementById("savedGuestGate");
+  var savedPageContentEl = document.getElementById("savedPageContent");
+  var saveRecoRunBtn = document.getElementById("saveRecoRunBtn");
+  var lastRecommendBundle = null;
+  var savedRecommendationsCache = [];
+  var lastRecommendInputSnapshot = null;
   var directoryBody = document.getElementById("directoryTableBody");
   var directorySearch = document.getElementById("directorySearch");
   var directoryRegion = document.getElementById("directoryRegion");
   var directoryInstitution = document.getElementById("directoryInstitution");
+  var directoryOwnership = document.getElementById("directoryOwnership");
+  var directoryCategory = document.getElementById("directoryCategory");
+  var directoryAward = document.getElementById("directoryAward");
+  var univGrid = document.getElementById("univGrid");
+  var univSearch = document.getElementById("univSearch");
+  var univRegion = document.getElementById("univRegion");
+  var univOwnership = document.getElementById("univOwnership");
+  var univKind = document.getElementById("univKind");
+  var univResultCount = document.getElementById("univResultCount");
+  var progResultCount = document.getElementById("progResultCount");
+  var dirInstitutionsPanel = document.getElementById("dirInstitutionsPanel");
+  var dirProgrammesPanel = document.getElementById("dirProgrammesPanel");
+  var univModal = document.getElementById("univModal");
+  var univModalTitle = document.getElementById("univModalTitle");
+  var univModalMeta = document.getElementById("univModalMeta");
+  var univModalBody = document.getElementById("univModalBody");
+  var univModalPreview = document.getElementById("univModalPreview");
+  var univModalSource = document.getElementById("univModalSource");
+  var univModalProgBtn = document.getElementById("univModalProgBtn");
+  var univModalWebLink = document.getElementById("univModalWebLink");
+  var univModalInstCode = "";
+  var univGridRenderTimer = null;
+  var univGridDelegated = false;
   var chatMessages = document.getElementById("chatMessages");
   var chatInput = document.getElementById("chatInput");
   var chatSend = document.getElementById("chatSend");
 
   var directoryRows = [];
+  var institutionList = [];
   var institutionsByCode = {};
+  var directoryView = "institutions";
+  var homeMeta = { programmes_loaded: 0, institutions_covered: [] };
+  var themeAnimTimer = null;
+
+  function readStoredJSON(key, fallback) {
+    try {
+      var raw = localStorage.getItem(key);
+      if (!raw) return fallback;
+      var parsed = JSON.parse(raw);
+      return parsed == null ? fallback : parsed;
+    } catch (_err) {
+      return fallback;
+    }
+  }
+
+  function writeStoredJSON(key, value) {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch (_err) {}
+  }
+
+  function apiFetch(url, options) {
+    var opts = options || {};
+    opts.credentials = "include";
+    return fetch(url, opts);
+  }
+
+  function getExamContext() {
+    try {
+      var raw = sessionStorage.getItem("mwongozo-exam-context");
+      return raw ? JSON.parse(raw) : null;
+    } catch (_err) {
+      return null;
+    }
+  }
+
+  function setExamContext(ctx) {
+    try {
+      sessionStorage.setItem("mwongozo-exam-context", JSON.stringify(ctx || {}));
+    } catch (_err) {}
+  }
+
+  function getSavedProgrammes() {
+    var items = readStoredJSON("mwongozo-saved-programmes", []);
+    return Array.isArray(items) ? items : [];
+  }
+
+  function setSavedProgrammes(items) {
+    writeStoredJSON("mwongozo-saved-programmes", items);
+  }
+
+  function syncSavedProgrammesFromServer() {
+    if (!isLoggedIn()) return Promise.resolve();
+    return apiFetch("/auth/saved-programmes")
+      .then(function (response) {
+        return response.json().then(function (data) {
+          return { ok: response.ok, status: response.status, data: data };
+        });
+      })
+      .then(function (result) {
+        if (result.status === 401) {
+          updateAuthOnlyNav();
+          renderSavedPage();
+          return;
+        }
+        if (!result.ok || !result.data || !Array.isArray(result.data.items)) return;
+        setSavedProgrammes(result.data.items);
+        renderHomeDashboard();
+        renderSavedPage();
+      })
+      .catch(function () {});
+  }
+
+  function getRecentActivity() {
+    var items = readStoredJSON("mwongozo-recent-activity", []);
+    return Array.isArray(items) ? items : [];
+  }
+
+  function setRecentActivity(items) {
+    writeStoredJSON("mwongozo-recent-activity", items);
+  }
+
+  function addRecentActivity(kind, title, meta) {
+    var items = getRecentActivity();
+    items.unshift({
+      kind: kind || "info",
+      title: title || "",
+      meta: meta || "",
+      ts: Date.now(),
+    });
+    setRecentActivity(items.slice(0, 8));
+    renderHomeDashboard();
+  }
+
+  function toggleSavedProgramme(rec) {
+    if (!rec || !rec.programme) return;
+    whenAuthReady(function () {
+      if (!isLoggedIn()) {
+        loginRequiredToast();
+        return;
+      }
+    var code = String(rec.programme.code || "");
+    if (!code) return;
+    var snapshot = {
+      code: code,
+      name: rec.programme.name || "",
+      institution_name: rec.programme.institution_name || "",
+      region: rec.programme.region || "",
+      category: rec.programme.category || "",
+      apply_url: rec.institution_apply_url || rec.institution_website || "",
+      saved_at: Date.now(),
+    };
+    var items = getSavedProgrammes();
+    var idx = items.findIndex(function (item) {
+      return String(item.code || "") === code;
+    });
+    var removing = idx !== -1;
+    var request = removing
+      ? apiFetch("/auth/saved-programmes/" + encodeURIComponent(code), { method: "DELETE" })
+      : apiFetch("/auth/saved-programmes", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ programme_code: code, snapshot: snapshot }),
+        });
+    request
+      .then(function (response) {
+        if (response.status === 401) {
+          handleSavedApiFailure(response);
+          return null;
+        }
+        if (!response.ok && response.status !== 204) {
+          handleSavedApiFailure(response, "Imeshindwa kuhifadhi programme");
+          return null;
+        }
+        return response;
+      })
+      .then(function (response) {
+        if (!response) return;
+        if (removing) {
+          items.splice(idx, 1);
+          setSavedProgrammes(items);
+          toast("Programme imeondolewa kwenye saved", "info");
+          addRecentActivity("save", rec.programme.name || code, "Removed from saved programmes");
+        } else {
+          items.unshift(snapshot);
+          setSavedProgrammes(items.slice(0, 50));
+          toast("Programme imehifadhiwa", "success");
+          addRecentActivity("save", rec.programme.name || code, "Saved programmes");
+        }
+        renderHomeDashboard();
+        renderSavedPage();
+        renderResultsPageTable();
+      })
+      .catch(function () {
+        toast("Imeshindwa kuhifadhi — angalia muunganisho", "warn");
+      });
+    });
+  }
+
+  function isLoggedIn() {
+    return !!(window.__MWONGOZO_USER__ && window.__MWONGOZO_USER__.id);
+  }
+
+  function whenAuthReady(fn) {
+    if (window.MwongozoAuth && typeof window.MwongozoAuth.refresh === "function") {
+      return window.MwongozoAuth.refresh().then(function () {
+        return fn();
+      });
+    }
+    return Promise.resolve(fn());
+  }
+
+  function handleSavedApiFailure(response, fallbackMessage) {
+    if (response && response.status === 401) {
+      loginRequiredToast();
+      return true;
+    }
+    toast(fallbackMessage || "Imeshindwa kuhifadhi", "warn");
+    return true;
+  }
+
+  function loginRequiredToast() {
+    var L = I18N[getUiLang()] || I18N.sw;
+    toast(L.saved_login_required || "Ingia kwanza", "warn");
+  }
+
+  function updateSaveAnalysisButtonState() {
+    var hasBundle = !!lastRecommendBundle;
+    var tableBtn = document.getElementById("saveRecoAnalysisBtn");
+    [saveRecoRunBtn, tableBtn].forEach(function (btn) {
+      if (!btn) return;
+      btn.disabled = !hasBundle;
+    });
+  }
+
+  function updateAuthOnlyNav() {
+    var loggedIn = isLoggedIn();
+    document.querySelectorAll(".auth-only-nav").forEach(function (el) {
+      el.classList.toggle("hidden", !loggedIn);
+      el.hidden = !loggedIn;
+    });
+    updateSaveAnalysisButtonState();
+  }
+
+  function trimRecForSnapshot(rec) {
+    if (!rec) return null;
+    return {
+      rank: rec.rank,
+      programme: {
+        code: (rec.programme && rec.programme.code) || "",
+        name: (rec.programme && rec.programme.name) || "",
+        institution_name: (rec.programme && rec.programme.institution_name) || "",
+        institution_code: (rec.programme && rec.programme.institution_code) || "",
+        region: (rec.programme && rec.programme.region) || "",
+        category: (rec.programme && rec.programme.category) || "",
+      },
+      student_points: rec.student_points,
+      minimum_required_points: rec.minimum_required_points,
+      assessment: rec.assessment
+        ? {
+            confidence: rec.assessment.confidence,
+            confidence_band: rec.assessment.confidence_band,
+          }
+        : {},
+      __isReview: Boolean(rec.__isReview),
+    };
+  }
+
+  function buildRecommendBundlePayload(data, inputSnapshot) {
+    var recommendations = (data.recommendations || []).map(function (rec) {
+      return trimRecForSnapshot(Object.assign({}, rec, { __isReview: false }));
+    });
+    var reviewCandidates = (data.review_candidates || []).map(function (rec) {
+      return trimRecForSnapshot(Object.assign({}, rec, { __isReview: true }));
+    });
+    var allRows = recommendations.concat(reviewCandidates);
+    var input = inputSnapshot || data.input_snapshot || {};
+    var combo = (input.combination || input.a_level_combination || "").toString().toUpperCase();
+    var examYear = input.exam_year || input.year || "";
+    var titleParts = [combo, examYear].filter(Boolean);
+    return {
+      title: titleParts.length ? titleParts.join(" · ") : "Recommendations " + new Date().toLocaleDateString(),
+      input_snapshot: input,
+      results_snapshot: {
+        recommendations: recommendations.slice(0, 40),
+        review_candidates: reviewCandidates.slice(0, 20),
+        combination_suggestions: (data.combination_suggestions || []).slice(0, 6),
+        summary: {
+          direct_count: recommendations.length,
+          review_count: reviewCandidates.length,
+          total_count: allRows.length,
+        },
+      },
+      recommend_count: allRows.length,
+      direct_count: recommendations.length,
+      review_count: reviewCandidates.length,
+    };
+  }
+
+  function syncSavedRecommendationsFromServer() {
+    if (!isLoggedIn()) {
+      savedRecommendationsCache = [];
+      renderSavedPage();
+      return Promise.resolve();
+    }
+    return apiFetch("/auth/saved-recommendations")
+      .then(function (response) {
+        return response.json().then(function (data) {
+          return { ok: response.ok, status: response.status, data: data };
+        });
+      })
+      .then(function (result) {
+        if (result.status === 401) {
+          savedRecommendationsCache = [];
+          updateAuthOnlyNav();
+          renderSavedPage();
+          return;
+        }
+        if (!result.ok || !result.data || !Array.isArray(result.data.items)) return;
+        savedRecommendationsCache = result.data.items;
+        renderSavedPage();
+      })
+      .catch(function () {});
+  }
+
+  function syncAllSavedFromServer() {
+    if (!isLoggedIn()) {
+      setSavedProgrammes([]);
+      savedRecommendationsCache = [];
+      renderSavedPage();
+      renderHomeDashboard();
+      return Promise.resolve();
+    }
+    return Promise.all([syncSavedProgrammesFromServer(), syncSavedRecommendationsFromServer()]);
+  }
+
+  function formatSavedAtLabel(value) {
+    if (!value) return "";
+    var stamp = Date.parse(String(value));
+    if (!Number.isFinite(stamp)) return String(value);
+    try {
+      return new Date(stamp).toLocaleString(getUiLang() === "en" ? "en-GB" : "sw-TZ", {
+        dateStyle: "medium",
+        timeStyle: "short",
+      });
+    } catch (_e) {
+      return new Date(stamp).toLocaleString();
+    }
+  }
+
+  function renderSavedProgrammesCards(container, items, options) {
+    if (!container) return;
+    options = options || {};
+    var L = I18N[getUiLang()] || I18N.sw;
+    if (!items.length) {
+      container.innerHTML = '<div class="saved-empty">' + escapeHtml(L.saved_empty_prog) + "</div>";
+      return;
+    }
+    container.innerHTML = items
+      .map(function (item) {
+        var code = String(item.code || "");
+        return (
+          '<article class="saved-programme-card" data-saved-prog="' +
+          escapeHtmlAttr(code) +
+          '">' +
+          '<div class="saved-programme-card__title">' +
+          escapeHtml(item.name || item.code || "Programme") +
+          '</div><div class="saved-programme-card__meta">' +
+          escapeHtml(item.institution_name || "") +
+          " · " +
+          escapeHtml(item.region || "") +
+          '</div><div class="saved-programme-card__actions">' +
+          '<span class="muted small">' +
+          escapeHtml(item.category || "") +
+          "</span>" +
+          '<div class="btn-group">' +
+          (item.apply_url
+            ? '<a class="btn btn-secondary btn-sm" href="' +
+              escapeHtmlAttr(item.apply_url) +
+              '" target="_blank" rel="noopener noreferrer">Open</a>'
+            : "") +
+          (options.removable
+            ? '<button type="button" class="btn btn-secondary btn-sm btn-remove-saved" data-remove-saved="' +
+              escapeHtmlAttr(code) +
+              '"><i class="fa-solid fa-trash-can" aria-hidden="true"></i></button>'
+            : "") +
+          "</div></div></article>"
+        );
+      })
+      .join("");
+    if (options.removable) {
+      container.querySelectorAll("[data-remove-saved]").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          var code = btn.getAttribute("data-remove-saved");
+          if (!code) return;
+          apiFetch("/auth/saved-programmes/" + encodeURIComponent(code), { method: "DELETE" })
+            .then(function (response) {
+              if (!response.ok) throw new Error("delete failed");
+              var itemsNext = getSavedProgrammes().filter(function (item) {
+                return String(item.code || "") !== code;
+              });
+              setSavedProgrammes(itemsNext);
+              renderSavedPage();
+              renderHomeDashboard();
+              if (resultsPagination.items && resultsPagination.items.length) renderResultsPageTable();
+              toast("Programme imeondolewa", "info");
+            })
+            .catch(function () {
+              toast("Imeshindwa kuondoa", "warn");
+            });
+        });
+      });
+    }
+  }
+
+  function renderSavedRecommendationsList() {
+    if (!savedRecommendationsListEl) return;
+    var L = I18N[getUiLang()] || I18N.sw;
+    if (savedRecoCountEl) savedRecoCountEl.textContent = String(savedRecommendationsCache.length);
+    if (!savedRecommendationsCache.length) {
+      savedRecommendationsListEl.innerHTML = '<div class="saved-empty">' + escapeHtml(L.saved_empty_reco) + "</div>";
+      return;
+    }
+    savedRecommendationsListEl.innerHTML = savedRecommendationsCache
+      .map(function (item) {
+        var title = item.title || ("Analysis #" + item.id);
+        var input = item.input_snapshot || {};
+        var pathway = input.pathway || input.level || "";
+        return (
+          '<article class="saved-reco-card" data-saved-reco-id="' +
+          escapeHtmlAttr(String(item.id)) +
+          '"><div class="saved-reco-card__head" data-toggle-reco="' +
+          escapeHtmlAttr(String(item.id)) +
+          '"><div><div class="saved-reco-card__title">' +
+          escapeHtml(title) +
+          '</div><div class="saved-reco-card__meta">' +
+          escapeHtml(formatSavedAtLabel(item.saved_at)) +
+          (pathway ? " · " + escapeHtml(String(pathway)) : "") +
+          '</div></div><div class="saved-reco-card__badges">' +
+          '<span class="saved-reco-badge saved-reco-badge--direct">' +
+          escapeHtml(String(item.direct_count || 0)) +
+          " direct</span>" +
+          '<span class="saved-reco-badge saved-reco-badge--review">' +
+          escapeHtml(String(item.review_count || 0)) +
+          " borderline</span>" +
+          '</div></div><div class="saved-reco-card__body"><div class="saved-reco-card__actions">' +
+          '<button type="button" class="btn btn-secondary btn-sm" data-load-reco="' +
+          escapeHtmlAttr(String(item.id)) +
+          '"><i class="fa-solid fa-table-list" aria-hidden="true"></i> View table</button>' +
+          '<button type="button" class="btn btn-secondary btn-sm btn-remove-saved" data-delete-reco="' +
+          escapeHtmlAttr(String(item.id)) +
+          '"><i class="fa-solid fa-trash-can" aria-hidden="true"></i> Delete</button>' +
+          '</div><div class="saved-reco-detail" data-reco-detail="' +
+          escapeHtmlAttr(String(item.id)) +
+          '"><p class="muted small">Loading…</p></div></div></article>'
+        );
+      })
+      .join("");
+
+    savedRecommendationsListEl.querySelectorAll("[data-toggle-reco]").forEach(function (head) {
+      head.addEventListener("click", function (e) {
+        if (e.target.closest("[data-delete-reco],[data-load-reco]")) return;
+        var card = head.closest(".saved-reco-card");
+        if (!card) return;
+        var opening = !card.classList.contains("is-open");
+        card.classList.toggle("is-open", opening);
+        if (opening) loadSavedRecommendationDetail(Number(card.getAttribute("data-saved-reco-id")));
+      });
+    });
+
+    savedRecommendationsListEl.querySelectorAll("[data-load-reco]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        loadSavedRecommendationDetail(Number(btn.getAttribute("data-load-reco")), true);
+      });
+    });
+
+    savedRecommendationsListEl.querySelectorAll("[data-delete-reco]").forEach(function (btn) {
+      btn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        deleteSavedRecommendation(Number(btn.getAttribute("data-delete-reco")));
+      });
+    });
+  }
+
+  function loadSavedRecommendationDetail(recoId, openResults) {
+    if (!recoId) return;
+    apiFetch("/auth/saved-recommendations/" + encodeURIComponent(String(recoId)))
+      .then(function (response) {
+        return response.json().then(function (data) {
+          return { ok: response.ok, data: data };
+        });
+      })
+      .then(function (result) {
+        if (!result.ok || !result.data || !result.data.item) throw new Error("missing");
+        var item = result.data.item;
+        var snap = item.results_snapshot || {};
+        var recs = (snap.recommendations || []).concat(snap.review_candidates || []);
+        var detailEl = savedRecommendationsListEl && savedRecommendationsListEl.querySelector('[data-reco-detail="' + recoId + '"]');
+        if (detailEl) {
+          if (!recs.length) {
+            detailEl.innerHTML = '<p class="muted small">' + escapeHtml(t("saved_no_programmes")) + "</p>";
+          } else {
+            detailEl.innerHTML =
+              '<table class="saved-reco-mini-table"><thead><tr><th>#</th><th>Institution</th><th>Programme</th><th>Conf.</th></tr></thead><tbody>' +
+              recs
+                .slice(0, 15)
+                .map(function (rec) {
+                  var conf = rec.assessment && rec.assessment.confidence != null ? rec.assessment.confidence + "%" : "—";
+                  return (
+                    "<tr><td>" +
+                    escapeHtml(String(rec.rank != null ? rec.rank : "—")) +
+                    "</td><td>" +
+                    escapeHtml((rec.programme && rec.programme.institution_name) || "") +
+                    "</td><td>" +
+                    escapeHtml((rec.programme && rec.programme.name) || "") +
+                    "</td><td>" +
+                    escapeHtml(String(conf)) +
+                    "</td></tr>"
+                  );
+                })
+                .join("") +
+              "</tbody></table>";
+          }
+        }
+        if (openResults) {
+          resultsPagination.items = recs.map(function (rec) {
+            return Object.assign({}, rec, { __isReview: Boolean(rec.__isReview) });
+          });
+          resultsPagination.page = 0;
+          resultsPagination.directCount = Number(item.direct_count) || 0;
+          resultsPagination.reviewCount = Number(item.review_count) || 0;
+          resultsPagination.filters = { query: "", region: "all", category: "all", sort: "confidence_desc" };
+          lastRecommendBundle = {
+            title: item.title,
+            input_snapshot: item.input_snapshot || {},
+            results_snapshot: snap,
+            recommend_count: item.recommend_count,
+            direct_count: item.direct_count,
+            review_count: item.review_count,
+          };
+          showResultsView();
+          navigateDash("results");
+          renderResultsPageTable();
+        }
+      })
+      .catch(function () {
+        toast("Imeshindwa kupakia uchambuzi", "warn");
+      });
+  }
+
+  function deleteSavedRecommendation(recoId) {
+    if (!recoId) return;
+    apiFetch("/auth/saved-recommendations/" + encodeURIComponent(String(recoId)), { method: "DELETE" })
+      .then(function (response) {
+        if (!response.ok) throw new Error("delete failed");
+        savedRecommendationsCache = savedRecommendationsCache.filter(function (item) {
+          return Number(item.id) !== Number(recoId);
+        });
+        renderSavedPage();
+        toast("Uchambuzi umeondolewa", "info");
+      })
+      .catch(function () {
+        toast("Imeshindwa kuondoa uchambuzi", "warn");
+      });
+  }
+
+  function renderSavedPage() {
+    var loggedIn = isLoggedIn();
+    if (savedGuestGateEl) {
+      savedGuestGateEl.classList.toggle("hidden", loggedIn);
+      savedGuestGateEl.hidden = !loggedIn ? false : true;
+    }
+    if (savedPageContentEl) {
+      savedPageContentEl.classList.toggle("hidden", !loggedIn);
+      savedPageContentEl.hidden = !loggedIn;
+    }
+    if (!loggedIn) return;
+    var saved = getSavedProgrammes();
+    if (savedProgCountEl) savedProgCountEl.textContent = String(saved.length);
+    renderSavedProgrammesCards(savedProgrammesPageListEl, saved, { removable: true });
+    if (savedProgrammesListEl) renderSavedProgrammesCards(savedProgrammesListEl, saved.slice(0, 4));
+    renderSavedRecommendationsList();
+  }
+
+  function saveCurrentRecommendations() {
+    whenAuthReady(function () {
+      if (!isLoggedIn()) {
+        loginRequiredToast();
+        return Promise.resolve();
+      }
+      if (!lastRecommendBundle) {
+        toast("Hakuna mapendekezo ya kuhifadhi", "warn");
+        return Promise.resolve();
+      }
+      if (saveRecoRunBtn) saveRecoRunBtn.disabled = true;
+      var tableSaveBtn = document.getElementById("saveRecoAnalysisBtn");
+      if (tableSaveBtn) tableSaveBtn.disabled = true;
+      return apiFetch("/auth/saved-recommendations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(lastRecommendBundle),
+      })
+        .then(function (response) {
+          return response.json().then(function (data) {
+            return { ok: response.ok, status: response.status, data: data };
+          });
+        })
+        .then(function (result) {
+          if (result.status === 401) {
+            handleSavedApiFailure({ status: 401 });
+            return;
+          }
+          if (!result.ok) {
+            var detail =
+              result.data && result.data.detail
+                ? String(result.data.detail)
+                : "Imeshindwa kuhifadhi uchambuzi";
+            toast(detail, "warn");
+            return;
+          }
+          var L = I18N[getUiLang()] || I18N.sw;
+          toast(L.saved_save_ok || "Saved", "success");
+          addRecentActivity("save", lastRecommendBundle.title || "Saved analysis", "Recommendation run saved");
+          return syncSavedRecommendationsFromServer().then(function () {
+            navigateDash("saved");
+          });
+        })
+        .catch(function () {
+          var L = I18N[getUiLang()] || I18N.sw;
+          toast(L.saved_save_fail || "Save failed", "warn");
+        })
+        .finally(function () {
+          updateSaveAnalysisButtonState();
+        });
+    });
+  }
+
+  function isProgrammeSaved(rec) {
+    if (!rec || !rec.programme) return false;
+    var code = String(rec.programme.code || "");
+    if (!code) return false;
+    return getSavedProgrammes().some(function (item) {
+      return String(item.code || "") === code;
+    });
+  }
+
+  function formatRelativeTime(ts) {
+    var stamp = Number(ts) || Date.now();
+    var diff = Math.max(0, Date.now() - stamp);
+    var mins = Math.floor(diff / 60000);
+    if (mins < 1) return t("time_just_now");
+    if (mins < 60) return mins + t("time_mins_ago");
+    var hrs = Math.floor(mins / 60);
+    if (hrs < 24) return hrs + t("time_hrs_ago");
+    var days = Math.floor(hrs / 24);
+    return days + t("time_days_ago");
+  }
+
+  function renderHomeDashboard() {
+    var saved = getSavedProgrammes();
+    var activity = getRecentActivity();
+    if (homeOverviewStatsEl) {
+      var programmeCount = Number(homeMeta.programmes_loaded) || 0;
+      var institutionCount = Array.isArray(homeMeta.institutions_covered) ? homeMeta.institutions_covered.length : 0;
+      homeOverviewStatsEl.innerHTML =
+        '<div class="overview-stat"><span class="overview-stat__value">' +
+        programmeCount +
+        '</span><span class="overview-stat__label">' +
+        escapeHtml(t("dash_stat_prog")) +
+        "</span></div>" +
+        '<div class="overview-stat"><span class="overview-stat__value">' +
+        institutionCount +
+        '</span><span class="overview-stat__label">' +
+        escapeHtml(t("dash_stat_inst")) +
+        "</span></div>" +
+        '<div class="overview-stat"><span class="overview-stat__value">' +
+        saved.length +
+        '</span><span class="overview-stat__label">' +
+        escapeHtml(t("dash_stat_saved_prog")) +
+        "</span></div>" +
+        '<div class="overview-stat"><span class="overview-stat__value">' +
+        (isLoggedIn() ? savedRecommendationsCache.length : "—") +
+        '</span><span class="overview-stat__label">' +
+        escapeHtml(t("dash_stat_saved_reco")) +
+        "</span></div>" +
+        '<div class="overview-stat"><span class="overview-stat__value">' +
+        activity.length +
+        '</span><span class="overview-stat__label">' +
+        escapeHtml(t("dash_stat_recent")) +
+        "</span></div>";
+    }
+    if (recentActivityListEl) {
+      if (!activity.length) {
+        recentActivityListEl.innerHTML = '<li class="activity-empty">' + escapeHtml(t("dash_activity_empty")) + "</li>";
+      } else {
+        recentActivityListEl.innerHTML = activity
+          .slice(0, 5)
+          .map(function (item) {
+            var kind = String(item.kind || "info").toLowerCase();
+            return (
+              '<li class="activity-item">' +
+              '<span class="activity-item__dot activity-item__dot--' +
+              escapeHtmlAttr(kind) +
+              '" aria-hidden="true"></span>' +
+              '<div><div class="activity-item__title">' +
+              escapeHtml(item.title || t("dash_activity_fallback")) +
+              '</div><div class="activity-item__meta">' +
+              escapeHtml(item.meta || "") +
+              " · " +
+              escapeHtml(formatRelativeTime(item.ts)) +
+              "</div></div></li>"
+            );
+          })
+          .join("");
+      }
+    }
+    if (isLoggedIn()) renderSavedPage();
+  }
 
   var resultsPagination = {
     items: [],
     page: 0,
-    pageSize: 16,
+    pageSize: 24,
     directCount: 0,
     reviewCount: 0,
     filters: { query: "", region: "all", category: "all", sort: "confidence_desc" },
@@ -73,11 +788,11 @@
       login_demo: "Ingia",
       cta_start: "Anza sasa",
       cta_dashboard: "Fungua dashboard",
-      cta_register: "Sajili (demo)",
+      cta_register: "Jisajili",
       cta_skip: "Ruka landing",
       cta_skip_link: "Ruka landing → fungua dashboard moja kwa moja",
       cta_start_results: "Anza bure — weka matokeo",
-      cta_have_account: "Nina akaunti (demo)",
+      cta_have_account: "Nina akaunti",
       hero_badge: "Mwongozo rasmi wa kujiunga na vyuo — Tanzania",
       hero_l1: "Pata njia yako kwenda",
       hero_l2: "elimu ya juu",
@@ -100,7 +815,7 @@
       feat_d4: "Maswali kuhusu maombi, NECTA, au TCU — majibu ya haraka (si huduma ya nje ya AI).",
       news_land_title: "Habari, matangazo & deadlines",
       news_land_sub:
-        "Fuata TCU, HESLB, na taasisi — tarehe hizi ni mfano wa kielimu; thibitisha kila mwaka kwenye tovuti rasmi.",
+        "Fuata TCU, HESLB, na taasisi zako — thibitisha rasmi kila mwaka kwenye tovuti husika.",
       news_1t: "TCU · Mwongozo wa kujiunga",
       news_1d: "Angalia dirisha la maombi la taasisi husika na Guidebook la mwaka unaofuata.",
       news_2t: "Mkopo wa elimu ya juu (HESLB)",
@@ -111,10 +826,10 @@
       news_4date: "Taasisi",
       news_4t: "Maombi ya chuo",
       news_4d: "Kila chuo kinaweza kuwa na tarehe tofauti — thibitisha tovuti rasmi ya chuo unachotaka.",
-      hero_stat1n: "90+",
-      hero_stat1l: "Vyuo vilivyoorodheshwa",
-      hero_stat2n: "800+",
-      hero_stat2l: "Programme za shahada",
+      hero_stat1n: "60+",
+      hero_stat1l: "Vyuo na taasisi",
+      hero_stat2n: "400+",
+      hero_stat2l: "Programme (shahada, diploma, cheti)",
       hero_stat3n: "100%",
       hero_stat3l: "Msingi wa TCU Guidebook",
       hero_stat4n: "Bure",
@@ -135,12 +850,13 @@
       feat2_t: "Matokeo halisi",
       feat2_p: "Pakua matokeo NECTA au TETEA; fomu inajazwa kiotomatiki bila kubadili API.",
       feat3_t: "Orodha ya vyuo",
-      feat3_p: "Chuja programme kwa mkoa na chuo; maelezo kamili kwenye dirisha la modal.",
+      feat3_p: "Chuja vyuo kwa mkoa, umma/binafsi, na programme kwa category — tofauti na mapendekezo.",
       sidebar_foot: "MWONGOZO SMART · TCU & NECTA",
       fab_story: "Tupige story",
       chat_head: "SAM — msaada wa haraka",
-      chat_intro: "Majibu ya haraka kuhusu mfumo huu (si huduma ya nje ya AI).",
+      chat_intro: "Uliza kuhusu NECTA, TCU, vyuo, au HESLB — majibu ya haraka hapa.",
       chat_ph: "Andika ujumbe…",
+      chat_typing: "SAM anaandika…",
       chat_send: "Tuma",
       results_head: "Mapendekezo",
       results_mkoa: "Mkoa",
@@ -154,9 +870,85 @@
       nav_home: "Nyumbani",
       nav_input: "Matokeo",
       nav_results: "Mapendekezo",
-      nav_directory: "Vyuo & programme",
+      nav_saved: "Saved & analysis",
+      saved_page_title: "Saved & analysis",
+      saved_page_sub: "Mapendekezo yako yaliyohifadhiwa na programme ulizoweka bookmark — kwa uchambuzi wa baadaye.",
+      saved_go_reco: "Angalia mapendekezo",
+      saved_login_title: "Ingia ili kuona saved yako",
+      saved_login_sub: "Hifadhi uchambuzi wa mapendekezo na programme kwa akaunti yako.",
+      saved_login_cta: "Ingia / Jisajili",
+      saved_reco_title: "Saved recommendations",
+      saved_reco_sub: "Historia ya uchambuzi wako",
+      saved_prog_title: "Saved programmes",
+      saved_prog_sub: "Programme ulizoweka bookmark",
+      saved_save_run: "Hifadhi uchambuzi",
+      saved_save_ok: "Uchambuzi umehifadhiwa",
+      saved_save_fail: "Imeshindwa kuhifadhi uchambuzi",
+      saved_login_required: "Ingia kwanza ili kuhifadhi",
+      saved_empty_reco: "Hakuna uchambuzi ulihifadhiwa bado. Run recommendations kisha bofya Hifadhi uchambuzi.",
+      saved_empty_prog: "Hakuna programme iliyohifadhiwa. Bofya bookmark kwenye jedwali la mapendekezo.",
+      saved_view_all: "Angalia saved",
       nav_loan: "Mkopo & HESLB",
+      loan_title: "Mkopo & HESLB",
+      loan_sub: "Mwongozo rasmi wa mkopo, nyaraka, na ufuatiliaji wa maombi.",
+      loan_demo_badge: "Mwongozo + ufuatiliaji",
+      loan_transparency: "Thibitisha kila hatua kwenye OLAS na heslb.go.tz — data halisi ya HESLB haipatikani hapa.",
+      loan_tab_guidance: "Mwongozo",
+      loan_tab_tracker: "Fuatilia",
+      loan_entry_title: "Anza ufuatiliaji",
+      loan_entry_hint: "Weka taarifa zako au jaribu nambari ya mfano ya maombi.",
+      loan_exam_level: "Kiwango cha mtihani",
+      loan_level_al: "A-Level",
+      loan_level_ol: "O-Level",
+      loan_exam_no: "Nambari ya mtihani (NECTA)",
+      loan_programme: "Programu uliyochagua",
+      loan_institution: "Chuo",
+      loan_heslb_ref: "Nambari ya maombi HESLB (OLAS)",
+      loan_nin: "NIDA / NIN (Nambari ya Utambulisho)",
+      loan_special_legend: "Kundi maalum (kama inavyotajwa na miongozo ya HESLB)",
+      loan_cat_orphan: "Yatima",
+      loan_cat_disability: "Ulemavu",
+      loan_cat_income: "Kipato cha chini",
+      loan_cat_single: "Familia ya mzazi mmoja",
+      loan_track_btn: "Fungua dashibodi ya ufadhili",
+      loan_demo_picker_label: "Chagua mfano wa mwanafunzi:",
+      loan_disclaimer:
+        "Thibitisha kila hatua kwenye OLAS na heslb.go.tz. Majina lazima yalingane na NIDA; cheti cha kuzaliwa kinathibitishwa na RITA kama inavyoelekezwa na HESLB.",
+      loan_funding_table: "Jedwali la ufadhili",
+      loan_col_ref: "HESLB ref",
+      loan_col_stage: "Hatua",
+      loan_col_complete: "Ukamilifu",
+      loan_col_batch: "Batch",
+      loan_col_prob: "Uwezekano",
+      loan_col_alerts: "Taarifa",
+      loan_col_appeal: "Rufaa",
+      loan_course_priority: "Kipaumbele cha programu",
+      loan_completion: "Ukamilifu wa maombi",
+      loan_timeline: "Ratiba ya hatua",
+      loan_batch_pred: "Utabiri wa Batch",
+      loan_confidence: "Kiwango cha uhakika wa ufadhili",
+      loan_citizenship: "NIDA / Uraia",
+      loan_special_panel: "Makundi maalum",
+      loan_alerts: "Taarifa & kituo cha hatua",
+      loan_risks: "Kuzuia makosa ya kawaida",
+      loan_scholarships: "Scholarships & ufadhili mbadala",
+      loan_appeal: "Mwongozo wa rufaa",
+      loan_parent: "Mwongozo wa mzazi/mlezi",
+      loan_no_upload: "Hakuna upakiaji hapa — mwongozo tu.",
+      loan_insights: "Mifano ya mafanikio",
+      loan_dash_action: "Fuatilia maombi ya HESLB na uwezekano wa ufadhili.",
       nav_assistant: "Msaada",
+      help_title: "Kituo cha Msaada",
+      help_sub: "SAM — mwongozo wa NECTA, mapendekezo, vyuo, na HESLB.",
+      help_badge: "Msaada hai",
+      help_hero_title: "Uliza, chagua mada, au enda moja kwa moja",
+      help_hero_p: "Majibu ya haraka yaliyopangwa — mwongozo wa vitendo kutoka MWONGOZO SMART.",
+      help_search_ph: "Tafuta mada…",
+      help_quick_input: "Jaza / pakua NECTA",
+      help_quick_results: "Angalia orodha",
+      help_quick_dir: "Chunguza programme",
+      help_quick_loan: "Mwongozo HESLB",
+      help_fallback: "Tumia kichupo Msaada kwa mada zilizopangwa.",
       nav_news: "Habari & deadline",
       results_col_rank: "#",
       results_col_inst: "Chuo",
@@ -180,7 +972,116 @@
       necta_loading: "Inapakia kutoka NECTA / TETEA…",
       necta_success_line: "Imepakiwa",
       sam_intro:
-        "Hujambo! Mimi ni SAM (Smart Admission Mate). Ninaweza kukusaidia na: kupakia matokeo kutoka NECTA/TETEA, kuelewa mapendekezo ya programme kulingana na TCU, kuchunguza orodha ya vyuo na programme, mwongozo wa HESLB/mkopo, na maswali ya jumla kuhusu mchakato wa maombi. Andika swali lako hapa chini.",
+        "Hujambo — mimi SAM. NECTA, TCU, vyuo, HESLB: uliza swali, nitakusaidia haraka.",
+      partners_label: "Washirika rasmi wa elimu",
+      dir_title: "Vyuo Tanzania",
+      dir_sub: "Chuja vyuo kwa mkoa, umma/binafsi, na aina — tofauti na mapendekezo ya matokeo yako.",
+      dir_tab_univ: "Vyuo",
+      dir_tab_prog: "Programme",
+      dir_search_univ: "Tafuta chuo",
+      dir_search_univ_ph: "Jina, mji, mkoa…",
+      dir_search_prog: "Tafuta programme",
+      dir_search_prog_ph: "Course, chuo, mkoa…",
+      dir_all_regions: "Mkoa wote",
+      dir_ownership: "Umiliki",
+      dir_all_ownership: "Vyote",
+      dir_public: "Umma",
+      dir_private: "Binafsi",
+      dir_kind: "Aina",
+      dir_all_kinds: "Zote",
+      dir_kind_univ: "Chuo kikuu",
+      dir_kind_college: "Chuo / taasisi",
+      dir_kind_other: "Nyingine",
+      dir_award: "Kiwango",
+      dir_all_awards: "Vyote",
+      dir_award_bach: "Shahada",
+      dir_award_dip: "Diploma",
+      dir_award_cert: "Cheti",
+      dir_inst_filter: "Chuo",
+      dir_all_inst: "Vyote",
+      dir_min_pts: "Min points",
+      dir_univ_count: "vyuo",
+      dir_prog_count: "programme",
+      dir_read_more: "Soma zaidi",
+      dir_view_programmes: "Angalia programme",
+      dir_official_site: "Tovuti rasmi",
+      dir_prog_verified: "programme (TCU)",
+      dir_prog_official: "programme (tovuti rasmi)",
+      dir_live_loading: "Inapakia kutoka tovuti rasmi…",
+      dir_live_partial: "Baadhi ya vyuo vimesasishwa kutoka tovuti rasmi",
+      dir_preview_more: "na zaidi",
+      nav_directory: "Vyuo Tanzania",
+      dash_welcome: "Karibu tena",
+      dash_overview: "Muhtasari",
+      dash_overview_sub: "Muhtasari wa mfumo",
+      dash_next_actions: "Hatua za haraka",
+      dash_next_sub: "Hatua za haraka",
+      dash_recent: "Shughuli za karibuni",
+      dash_recent_sub: "Mambo ya karibuni",
+      dash_act_input_title: "Endelea na matokeo",
+      dash_act_input_desc: "Jaza matokeo au pakia kutoka NECTA.",
+      dash_act_results_title: "Angalia mapendekezo",
+      dash_act_results_desc: "Pitia direct na borderline matches.",
+      dash_act_dir_title: "Tafuta vyuo",
+      dash_act_dir_desc: "Chuja programme kwa mkoa na category.",
+      dash_stat_prog: "Programme zilizopakiwa",
+      dash_stat_inst: "Taasisi zilizofunikwa",
+      dash_stat_saved_prog: "Programme zilizohifadhiwa",
+      dash_stat_saved_reco: "Uchambuzi uliohifadhiwa",
+      dash_stat_recent: "Hatua za karibuni",
+      dash_activity_empty: "Hakuna shughuli bado. Jaribu lookup au mapendekezo.",
+      dash_activity_fallback: "Shughuli",
+      theme_light_label: "Muonekano mwanga",
+      theme_dark_label: "Muonekano giza",
+      input_level_title: "Chagua level ya mtumiaji",
+      input_level_hint: "Form 4 au Form 6",
+      input_pathway_o: "Form 4 / O-Level",
+      input_pathway_a: "Form 6 / A-Level",
+      input_pathway_note:
+        "Chagua level, kisha unaweza <strong>chagua mwaka na nambari ya mtihani</strong> ili kupakia matokeo kutoka NECTA moja kwa moja, au jaza fomu kwa mkono.",
+      input_level_prompt: "Bonyeza <strong>Form 4</strong> au <strong>Form 6</strong> ili uanze.",
+      input_necta_title: "Angalia matokeo NECTA",
+      input_necta_hint: "Mwaka wa mtihani + nambari yako",
+      input_necta_year: "Mwaka alio maliza shule",
+      input_necta_cno: "Nambari ya mtihani (CNO)",
+      input_necta_fetch: "Pakua matokeo kutoka NECTA",
+      input_al_title: "Form 6 / A-Level",
+      input_al_hint: "Combination na masomo ya principal",
+      input_combination: "Combination",
+      input_combination_ph: "Chagua combination",
+      input_principal: "Masomo ya principal",
+      input_add_al: "+ Ongeza somo la A-Level",
+      input_ol_title: "Form 4 / O-Level",
+      input_ol_hint: "Masomo ya CSEE, grades, na result model",
+      input_division: "Division iliyokokotwa",
+      input_division_ph: "Chagua division",
+      input_result_model: "Result model",
+      input_ol_subjects: "Masomo ya NECTA O-Level",
+      input_add_ol: "+ Ongeza somo la O-Level",
+      btn_get_reco: "Pata mapendekezo",
+      btn_load_example: "Pakia mfano",
+      btn_clear_form: "Futa fomu",
+      results_page_title: "Matokeo",
+      results_page_sub: "Mapendekezo yaliyopangwa",
+      btn_back_input: "Rudi kwenye fomu",
+      result_summary_idle:
+        "Chagua level, jaza matokeo, kisha bonyeza <strong>Pata mapendekezo</strong>.",
+      input_cleared: "Fomu imefutwa. Chagua level kisha ujaze matokeo.",
+      necta_pick_level: "Chagua Form 4 au Form 6 kwanza.",
+      necta_enter_cno: "Weka nambari ya mtihani (CNO).",
+      meta_load_fail: "Haiwezi kupakia takwimu sasa. Jaribu tena baadaye.",
+      dir_loading: "Inapakia vyuo…",
+      dir_no_data: "Hakuna data ya vyuo.",
+      dir_no_match: "Hakuna vyuo vinavyolingana na vichujio.",
+      saved_no_programmes: "Hakuna programme katika snapshot hii.",
+      results_all_regions: "Mkoa wote",
+      results_all_categories: "Category zote",
+      results_sort_high: "Juu → chini",
+      results_sort_low: "Chini → juu",
+      time_just_now: "Sasa hivi",
+      time_mins_ago: " dakika zilizopita",
+      time_hrs_ago: " masaa yaliyopita",
+      time_days_ago: " siku zilizopita",
       land_meta_heading: "Takwimu za mfumo",
       land_meta_prog: "Programme zilizopakiwa",
       land_meta_inst: "Taasisi",
@@ -193,11 +1094,11 @@
       login_demo: "Login",
       cta_start: "Get started",
       cta_dashboard: "Open dashboard",
-      cta_register: "Register (demo)",
+      cta_register: "Register",
       cta_skip: "Skip landing",
       cta_skip_link: "Skip landing → open dashboard directly",
       cta_start_results: "Start free — enter results",
-      cta_have_account: "I have an account (demo)",
+      cta_have_account: "I have an account",
       hero_badge: "Tanzania's university admission guide",
       hero_l1: "Find your path to",
       hero_l2: "higher education",
@@ -220,7 +1121,7 @@
       feat_d4: "Ask about admissions, NECTA, or TCU — quick scripted answers (not an external LLM).",
       news_land_title: "News, notices & deadlines",
       news_land_sub:
-        "Follow TCU, HESLB, and your target institutions — dates are educational examples; confirm each year on official sites.",
+        "Follow TCU, HESLB, and your target institutions — confirm each year on official sites.",
       news_1t: "TCU · Admission guide",
       news_1d: "Check each institution's application window and the Guidebook for the upcoming academic year.",
       news_2t: "Higher education loan (HESLB)",
@@ -231,10 +1132,10 @@
       news_4date: "Institutions",
       news_4t: "University applications",
       news_4d: "Each university may set different dates — always confirm on the official website.",
-      hero_stat1n: "90+",
-      hero_stat1l: "Universities listed",
-      hero_stat2n: "800+",
-      hero_stat2l: "Degree programmes",
+      hero_stat1n: "60+",
+      hero_stat1l: "Universities & colleges",
+      hero_stat2n: "400+",
+      hero_stat2l: "Programmes (degree, diploma, cert)",
       hero_stat3n: "100%",
       hero_stat3l: "Based on TCU Guidebook",
       hero_stat4n: "Free",
@@ -255,12 +1156,13 @@
       feat2_t: "Authentic results",
       feat2_p: "Fetch NECTA or TETEA results; the form fills without changing your API.",
       feat3_t: "Institution directory",
-      feat3_p: "Filter by region and institution; full detail in a modal window.",
+      feat3_p: "Filter universities by region and public/private; browse programmes separately from recommendations.",
       sidebar_foot: "MWONGOZO SMART · TCU & NECTA",
       fab_story: "Let's talk",
       chat_head: "SAM — quick help",
-      chat_intro: "Quick answers about this app (not an external AI service).",
+      chat_intro: "Ask about NECTA, TCU, universities, or HESLB — quick answers here.",
       chat_ph: "Type a message…",
+      chat_typing: "SAM is typing…",
       chat_send: "Send",
       results_head: "Recommendations",
       results_mkoa: "Region",
@@ -274,9 +1176,85 @@
       nav_home: "Home",
       nav_input: "Results",
       nav_results: "Recommendations",
-      nav_directory: "Universities & programmes",
+      nav_saved: "Saved & analysis",
+      saved_page_title: "Saved & analysis",
+      saved_page_sub: "Your saved recommendation runs and bookmarked programmes for later review.",
+      saved_go_reco: "View recommendations",
+      saved_login_title: "Sign in to view your saved items",
+      saved_login_sub: "Save recommendation analyses and programmes to your account.",
+      saved_login_cta: "Sign in / Register",
+      saved_reco_title: "Saved recommendations",
+      saved_reco_sub: "Your analysis history",
+      saved_prog_title: "Saved programmes",
+      saved_prog_sub: "Programmes you bookmarked",
+      saved_save_run: "Save analysis",
+      saved_save_ok: "Analysis saved",
+      saved_save_fail: "Could not save analysis",
+      saved_login_required: "Sign in first to save",
+      saved_empty_reco: "No saved analyses yet. Run recommendations then click Save analysis.",
+      saved_empty_prog: "No saved programmes yet. Use the bookmark icon on the recommendations table.",
+      saved_view_all: "View saved",
       nav_loan: "Loan & HESLB",
+      loan_title: "Loan & HESLB",
+      loan_sub: "Official loan guidance, documents, and application tracking.",
+      loan_demo_badge: "Guidance + tracking",
+      loan_transparency: "Confirm every step on OLAS and heslb.go.tz — live HESLB data is not available here.",
+      loan_tab_guidance: "Guidance",
+      loan_tab_tracker: "Track",
+      loan_entry_title: "Start tracking",
+      loan_entry_hint: "Enter your details or try a sample application reference.",
+      loan_exam_level: "Exam level",
+      loan_level_al: "A-Level",
+      loan_level_ol: "O-Level",
+      loan_exam_no: "Exam number (NECTA)",
+      loan_programme: "Selected programme",
+      loan_institution: "Institution",
+      loan_heslb_ref: "HESLB application reference (OLAS)",
+      loan_nin: "NIDA / NIN (National ID)",
+      loan_special_legend: "Special categories (as in HESLB guidelines)",
+      loan_cat_orphan: "Orphan",
+      loan_cat_disability: "Disability",
+      loan_cat_income: "Low income",
+      loan_cat_single: "Single-parent household",
+      loan_track_btn: "Open funding dashboard",
+      loan_demo_picker_label: "Choose a sample student:",
+      loan_disclaimer:
+        "Confirm every step on OLAS and heslb.go.tz. Names must match NIDA; birth certificates certified via RITA as directed by HESLB.",
+      loan_funding_table: "Funding table",
+      loan_col_ref: "HESLB ref",
+      loan_col_stage: "Stage",
+      loan_col_complete: "Completion",
+      loan_col_batch: "Batch",
+      loan_col_prob: "Probability",
+      loan_col_alerts: "Alerts",
+      loan_col_appeal: "Appeal",
+      loan_course_priority: "Course funding priority",
+      loan_completion: "Application completion",
+      loan_timeline: "Current stage timeline",
+      loan_batch_pred: "Predicted batch assignment",
+      loan_confidence: "Estimated funding confidence",
+      loan_citizenship: "NIDA / citizenship",
+      loan_special_panel: "Special categories",
+      loan_alerts: "Smart alerts & action center",
+      loan_risks: "Common mistakes prevention",
+      loan_scholarships: "Scholarship & alternative funding",
+      loan_appeal: "Appeal guidance assistant",
+      loan_parent: "Parent / guardian guidance",
+      loan_no_upload: "No uploads here — guidance only.",
+      loan_insights: "Success insights",
+      loan_dash_action: "Track HESLB application and funding probability.",
       nav_assistant: "Help",
+      help_title: "Help Centre",
+      help_sub: "SAM — guidance for NECTA, recommendations, universities, and HESLB.",
+      help_badge: "Live help",
+      help_hero_title: "Ask, pick a topic, or jump straight in",
+      help_hero_p: "Quick structured answers — practical guidance from MWONGOZO SMART.",
+      help_search_ph: "Search topics…",
+      help_quick_input: "Enter / fetch NECTA",
+      help_quick_results: "View list",
+      help_quick_dir: "Browse programmes",
+      help_quick_loan: "HESLB guidance",
+      help_fallback: "Use the Help tab for structured topics.",
       nav_news: "News & deadlines",
       results_col_rank: "#",
       results_col_inst: "Institution",
@@ -300,7 +1278,116 @@
       necta_loading: "Fetching from NECTA / TETEA…",
       necta_success_line: "Loaded successfully",
       sam_intro:
-        "Hi — I'm SAM (Smart Admission Mate). I can help with: fetching NECTA/TETEA results into your form, understanding TCU-based programme recommendations, browsing the institution & programme directory, HESLB / loan guidance, and general questions about how this system works. Type your question below.",
+        "Hi — I'm SAM. Ask about NECTA, TCU, universities, or HESLB — quick guidance here.",
+      partners_label: "Official education partners",
+      dir_title: "Universities in Tanzania",
+      dir_sub: "Filter by region, public/private, and type — separate from your results-based recommendations.",
+      dir_tab_univ: "Universities",
+      dir_tab_prog: "Programmes",
+      dir_search_univ: "Search institution",
+      dir_search_univ_ph: "Name, city, region…",
+      dir_search_prog: "Search programmes",
+      dir_search_prog_ph: "Course, institution, region…",
+      dir_all_regions: "All regions",
+      dir_ownership: "Ownership",
+      dir_all_ownership: "All",
+      dir_public: "Public",
+      dir_private: "Private",
+      dir_kind: "Type",
+      dir_all_kinds: "All types",
+      dir_kind_univ: "University",
+      dir_kind_college: "College / institute",
+      dir_kind_other: "Other",
+      dir_award: "Award level",
+      dir_all_awards: "All levels",
+      dir_award_bach: "Bachelor",
+      dir_award_dip: "Diploma",
+      dir_award_cert: "Certificate",
+      dir_inst_filter: "Institution",
+      dir_all_inst: "All",
+      dir_min_pts: "Min points",
+      dir_univ_count: "institutions",
+      dir_prog_count: "programmes",
+      dir_read_more: "Read more",
+      dir_view_programmes: "View programmes",
+      dir_official_site: "Official website",
+      dir_prog_verified: "programmes (TCU)",
+      dir_prog_official: "programmes (official site)",
+      dir_live_loading: "Loading from official websites…",
+      dir_live_partial: "Some institutions updated from official sites",
+      dir_preview_more: "and more",
+      nav_directory: "Tanzania universities",
+      dash_welcome: "Welcome back",
+      dash_overview: "Overview",
+      dash_overview_sub: "System snapshot",
+      dash_next_actions: "Next actions",
+      dash_next_sub: "Quick steps",
+      dash_recent: "Recent activity",
+      dash_recent_sub: "Latest actions",
+      dash_act_input_title: "Continue with results",
+      dash_act_input_desc: "Enter results or fetch from NECTA.",
+      dash_act_results_title: "View recommendations",
+      dash_act_results_desc: "Review direct and borderline matches.",
+      dash_act_dir_title: "Browse institutions",
+      dash_act_dir_desc: "Filter programmes by region and category.",
+      dash_stat_prog: "Programmes loaded",
+      dash_stat_inst: "Institutions covered",
+      dash_stat_saved_prog: "Saved programmes",
+      dash_stat_saved_reco: "Saved analyses",
+      dash_stat_recent: "Recent actions",
+      dash_activity_empty: "No activity yet. Try a lookup or recommendations.",
+      dash_activity_fallback: "Activity",
+      theme_light_label: "Light mode",
+      theme_dark_label: "Dark mode",
+      input_level_title: "Choose exam level",
+      input_level_hint: "Form 4 or Form 6",
+      input_pathway_o: "Form 4 / O-Level",
+      input_pathway_a: "Form 6 / A-Level",
+      input_pathway_note:
+        "Pick a level, then you can <strong>select year and exam number</strong> to fetch NECTA results automatically, or fill the form manually.",
+      input_level_prompt: "Press <strong>Form 4</strong> or <strong>Form 6</strong> to start.",
+      input_necta_title: "Check NECTA results",
+      input_necta_hint: "Exam year + your number",
+      input_necta_year: "Year completed school",
+      input_necta_cno: "Exam number (CNO)",
+      input_necta_fetch: "Fetch results from NECTA",
+      input_al_title: "Form 6 / A-Level",
+      input_al_hint: "Combination and principal subjects",
+      input_combination: "Combination",
+      input_combination_ph: "Select combination",
+      input_principal: "Principal subjects",
+      input_add_al: "+ Add A-Level subject",
+      input_ol_title: "Form 4 / O-Level",
+      input_ol_hint: "CSEE subjects, grades, and result model",
+      input_division: "Calculated division",
+      input_division_ph: "Select division",
+      input_result_model: "Result model",
+      input_ol_subjects: "NECTA O-Level subjects",
+      input_add_ol: "+ Add O-Level subject",
+      btn_get_reco: "Get recommendations",
+      btn_load_example: "Load example",
+      btn_clear_form: "Clear form",
+      results_page_title: "Results",
+      results_page_sub: "Ranked recommendations",
+      btn_back_input: "Back to inputs",
+      result_summary_idle:
+        "Choose a level, enter results, then press <strong>Get recommendations</strong>.",
+      input_cleared: "Form cleared. Choose a level and enter results.",
+      necta_pick_level: "Choose Form 4 or Form 6 first.",
+      necta_enter_cno: "Enter exam number (CNO).",
+      meta_load_fail: "Could not load stats right now. Try again later.",
+      dir_loading: "Loading institutions…",
+      dir_no_data: "No institution data.",
+      dir_no_match: "No institutions match your filters.",
+      saved_no_programmes: "No programmes in this snapshot.",
+      results_all_regions: "All regions",
+      results_all_categories: "All categories",
+      results_sort_high: "High → low",
+      results_sort_low: "Low → high",
+      time_just_now: "Just now",
+      time_mins_ago: " min ago",
+      time_hrs_ago: " hr ago",
+      time_days_ago: "d ago",
       land_meta_heading: "System stats",
       land_meta_prog: "Programmes loaded",
       land_meta_inst: "Institutions",
@@ -313,6 +1400,11 @@
     return document.body.getAttribute("data-ui-lang") === "en" ? "en" : "sw";
   }
 
+  function t(key) {
+    var pack = I18N[getUiLang()] || I18N.sw;
+    return pack[key] != null ? pack[key] : key;
+  }
+
   function applyI18n() {
     var lang = getUiLang();
     var pack = I18N[lang] || I18N.sw;
@@ -320,11 +1412,29 @@
       var k = el.getAttribute("data-i18n");
       if (k && pack[k] != null) el.textContent = pack[k];
     });
+    document.querySelectorAll("[data-i18n-html]").forEach(function (el) {
+      var k = el.getAttribute("data-i18n-html");
+      if (k && pack[k] != null) el.innerHTML = pack[k];
+    });
     document.querySelectorAll("[data-i18n-placeholder]").forEach(function (el) {
       var k = el.getAttribute("data-i18n-placeholder");
       if (k && pack[k] != null) el.setAttribute("placeholder", pack[k]);
     });
     document.documentElement.lang = lang === "en" ? "en" : "sw";
+    refreshThemeLabels();
+    if (resultSummaryEl && resultSummaryEl.dataset.idle === "1") {
+      resultSummaryEl.innerHTML = t("result_summary_idle");
+    }
+    var comboFirst = document.querySelector("#combination option[value='']");
+    if (comboFirst) comboFirst.textContent = t("input_combination_ph");
+  }
+
+  function refreshThemeLabels() {
+    var theme = document.body.dataset.theme === "light" ? "light" : "dark";
+    var label = theme === "light" ? t("theme_dark_label") : t("theme_light_label");
+    themeLabels.forEach(function (el) {
+      el.textContent = label;
+    });
   }
 
   function setUiLang(lang) {
@@ -334,24 +1444,56 @@
       btn.classList.toggle("is-active", btn.getAttribute("data-set-lang") === (lang === "en" ? "en" : "sw"));
     });
     applyI18n();
-    updateHeroCaption();
+    try {
+      renderHomeDashboard();
+    } catch (_e) {}
+    try {
+      initFabChatLabelAnimation();
+    } catch (_e) {}
+    try {
+      initNewsPortfolio();
+      initScrollMotion();
+    } catch (_e) {}
     if (resultsEl && resultsEl.querySelector(".results-bundle")) {
       try {
         renderResultsPageTable();
       } catch (_e) {}
     }
+    if (typeof window.refreshHelpLang === "function") window.refreshHelpLang();
+    var dockQuick = document.getElementById("chatDockQuick");
+    if (dockQuick && window.SamChat && window.__samDock && window.__samDock.messenger) {
+      window.SamChat.renderDockQuick(dockQuick, function (topicId) {
+        window.__samDock.messenger.replyFromTopicId(topicId);
+      });
+    }
   }
 
-  function updateHeroCaption() {
-    var cap = document.getElementById("heroSlideCaption");
-    var slide = document.querySelector(".hero-slide.is-active");
-    if (!cap || !slide) return;
-    var lang = getUiLang();
-    var t =
-      lang === "en"
-        ? slide.getAttribute("data-caption-en") || slide.getAttribute("data-caption-sw") || ""
-        : slide.getAttribute("data-caption-sw") || "";
-    cap.textContent = t;
+  var HERO_BG = {
+    "hero-slide--1": { url: "/static/hero/1.jpg", pos: "center 30%" },
+    "hero-slide--2": { url: "/static/hero/2.jpg", pos: "center 20%" },
+    "hero-slide--3": { url: "/static/hero/3.jpg", pos: "center 35%" },
+    "hero-slide--4": { url: "/static/hero/4.jpg", pos: "center 25%" },
+    "hero-slide--5": { url: "/static/hero/5.jpg", pos: "center 15%" },
+    "hero-slide--6": { url: "/static/hero/6.jpg", pos: "center 25%" },
+    "hero-slide--7": { url: "/static/hero/7.jpg", pos: "center 20%" },
+  };
+
+  function heroSlideMeta(slide) {
+    for (var i = 0; i < slide.classList.length; i++) {
+      var cls = slide.classList[i];
+      if (HERO_BG[cls]) return HERO_BG[cls];
+    }
+    return null;
+  }
+
+  function loadHeroSlideBg(slide) {
+    if (!slide || slide.dataset.bgLoaded === "1") return;
+    var meta = heroSlideMeta(slide);
+    if (!meta) return;
+    slide.dataset.bgLoaded = "1";
+    slide.style.backgroundImage = 'url("' + meta.url + '")';
+    slide.style.backgroundPosition = meta.pos;
+    slide.classList.add("is-bg-ready");
   }
 
   function initHeroSlideshow() {
@@ -380,84 +1522,435 @@
       dotBtns.forEach(function (d, j) {
         d.classList.toggle("is-active", j === idx);
       });
-      updateHeroCaption();
+      loadHeroSlideBg(slides[idx]);
+      var nxt = slides[(idx + 1) % slides.length];
+      if (nxt) setTimeout(function () { loadHeroSlideBg(nxt); }, 400);
     }
     go(0);
     var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     if (!reduce) {
       setInterval(function () {
         go(idx + 1);
-      }, 7000);
+      }, 9600);
     }
   }
 
-  function initFabChatDock() {
-    var fab = document.getElementById("fabChat");
-    var dock = document.getElementById("chatDock");
-    var closeBtn = document.getElementById("chatDockClose");
-    var sendBtn = document.getElementById("chatDockSend");
-    var input = document.getElementById("chatDockInput");
-    var log = document.getElementById("chatDockMessages");
-    if (!fab || !dock) return;
-    function pushDock(role, text) {
-      if (!log) return;
-      var d = document.createElement("div");
-      d.className = "chat-bubble chat-bubble--" + role;
-      d.textContent = text;
-      log.appendChild(d);
-      log.scrollTop = log.scrollHeight;
+  function initLazyMedia() {
+    var nodes = document.querySelectorAll("[data-bg]");
+    if (!nodes.length) return;
+    function applyBg(el) {
+      if (el.dataset.bgApplied === "1") return;
+      var url = el.getAttribute("data-bg");
+      if (!url) return;
+      el.dataset.bgApplied = "1";
+      el.style.backgroundImage = 'url("' + url + '")';
+      el.style.backgroundSize = "cover";
+      el.style.backgroundPosition = "center";
     }
-    function openDock() {
-      dock.classList.add("is-open");
-      dock.setAttribute("aria-hidden", "false");
-      fab.setAttribute("aria-expanded", "true");
-      if (!sessionStorage.getItem("mwongozo-sam-intro") && log) {
-        sessionStorage.setItem("mwongozo-sam-intro", "1");
-        var pack = I18N[getUiLang()] || I18N.sw;
-        pushDock("bot", pack.sam_intro);
+    if (!("IntersectionObserver" in window)) {
+      nodes.forEach(applyBg);
+      return;
+    }
+    var io = new IntersectionObserver(
+      function (entries) {
+        entries.forEach(function (entry) {
+          if (!entry.isIntersecting) return;
+          applyBg(entry.target);
+          io.unobserve(entry.target);
+        });
+      },
+      { rootMargin: "120px 0px", threshold: 0.01 }
+    );
+    nodes.forEach(function (el) {
+      el.classList.add("is-lazy-media");
+      io.observe(el);
+    });
+  }
+
+  function initPageEntrance() {
+    var landing = document.getElementById("landingView");
+    if (!landing || landing.classList.contains("hidden")) return;
+    var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduce) return;
+    landing.classList.add("landing--enter");
+    requestAnimationFrame(function () {
+      landing.classList.add("landing--enter-go");
+    });
+    setTimeout(function () {
+      landing.classList.remove("landing--enter", "landing--enter-go");
+    }, 1200);
+  }
+
+  function tagScrollMotionTargets() {
+    var landing = document.getElementById("landingView");
+    var dashboard = document.getElementById("dashboardShell");
+
+    function mark(el, delayMs) {
+      if (!el || el.classList.contains("sr")) return;
+      if (el.closest('[data-panel="assistant"]')) return;
+      el.classList.add("sr");
+      if (delayMs != null) el.style.setProperty("--sr-delay", delayMs + "ms");
+    }
+
+    function stagger(parent, childSel) {
+      if (!parent) return;
+      if (parent.closest('[data-panel="assistant"]')) return;
+      parent.classList.add("sr-stagger");
+      var kids = parent.querySelectorAll(childSel);
+      kids.forEach(function (child, i) {
+        child.classList.add("sr-child");
+        child.style.setProperty("--sr-i", String(i));
+      });
+    }
+
+    if (landing) {
+      mark(landing.querySelector(".landing-footer"), 40);
+
+      var featSec = landing.querySelector(".landing-features");
+      if (featSec) {
+        mark(featSec.querySelector(".sectors-title"), 0);
+        stagger(featSec.querySelector(".landing-feature-grid"), ".landing-feat-card");
+      }
+
+      var newsSec = landing.querySelector(".news-portfolio-section");
+      if (newsSec) {
+        mark(newsSec.querySelector(".news-portfolio-head"), 0);
+        stagger(newsSec.querySelector(".news-portfolio-scroll"), ".news-portfolio-card");
+      }
+
+      var secSec = landing.querySelector(".sectors-section");
+      if (secSec) {
+        mark(secSec.querySelector(".sectors-title"), 0);
+        stagger(secSec.querySelector(".sectors-grid"), ".sector-card");
+      }
+
+      stagger(landing.querySelector(".landing-stats"), ".stat-card");
+      stagger(landing.querySelector(".feature-grid"), ".feature-card");
+    }
+
+    if (dashboard) {
+      dashboard.querySelectorAll(".dashboard-action").forEach(function (el, i) {
+        mark(el, (i % 6) * 70);
+      });
+      dashboard.querySelectorAll("[data-panel]:not(.hidden) .card").forEach(function (el, i) {
+        if (el.closest('[data-panel="assistant"]')) return;
+        mark(el, (i % 4) * 60);
+      });
+      var dirPanel = dashboard.querySelector('[data-panel="directory"]');
+      if (dirPanel) {
+        mark(dirPanel.querySelector(".dir-top-bar"), 0);
+        mark(dirPanel.querySelector(".dir-view-tabs"), 50);
+        mark(dirPanel.querySelector("#dirInstitutionsPanel .dir-toolbar"), 80);
+        mark(dirPanel.querySelector("#dirProgrammesPanel .dir-toolbar"), 60);
+      }
+      var loanPanel = dashboard.querySelector('[data-panel="loan"]');
+      if (loanPanel) {
+        mark(loanPanel.querySelector(".loan-topbar"), 0);
+        loanPanel.querySelectorAll(".card").forEach(function (el, i) {
+          mark(el, (i % 5) * 55);
+        });
       }
     }
-    function closeDock() {
-      dock.classList.remove("is-open");
-      dock.setAttribute("aria-hidden", "true");
-      fab.setAttribute("aria-expanded", "false");
+  }
+
+  var scrollMotionObserver = null;
+
+  function revealScrollNode(node) {
+    if (!node) return;
+    node.classList.add("is-visible", "is-revealed");
+  }
+
+  function hideScrollNode(node) {
+    if (!node) return;
+    node.classList.remove("is-visible", "is-revealed");
+  }
+
+  function initScrollMotion() {
+    tagScrollMotionTargets();
+
+    var nodes = document.querySelectorAll(".sr, .sr-stagger");
+    if (!nodes.length) return;
+
+    if (!("IntersectionObserver" in window)) {
+      nodes.forEach(revealScrollNode);
+      return;
     }
-    fab.addEventListener("click", function () {
-      if (dock.classList.contains("is-open")) closeDock();
-      else openDock();
+
+    var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduce) {
+      nodes.forEach(revealScrollNode);
+      return;
+    }
+
+    if (scrollMotionObserver) {
+      scrollMotionObserver.disconnect();
+    }
+
+    scrollMotionObserver = new IntersectionObserver(
+      function (entries) {
+        entries.forEach(function (entry) {
+          if (entry.isIntersecting) {
+            revealScrollNode(entry.target);
+          } else {
+            hideScrollNode(entry.target);
+          }
+        });
+      },
+      {
+        threshold: [0, 0.08, 0.15],
+        rootMargin: "0px 0px -6% 0px",
+      }
+    );
+
+    nodes.forEach(function (node) {
+      scrollMotionObserver.observe(node);
     });
-    if (closeBtn) closeBtn.addEventListener("click", closeDock);
-    if (sendBtn && input) {
-      sendBtn.addEventListener("click", function () {
-        var t = input.value.trim();
-        if (!t) return;
-        pushDock("user", t);
-        input.value = "";
-        var lower = t.toLowerCase();
-        var reply =
-          getUiLang() === "en"
-            ? "Thanks for reaching out. Use the results form and NECTA fetch for accurate data; this chat gives general guidance only."
-            : "Asante kwa kuwasiliana. Tumia fomu ya matokeo na upakiaji wa NECTA kwa data sahihi; mazungumzo haya ni mwongozo wa jumla tu.";
-        if (lower.indexOf("tcu") !== -1)
-          reply =
-            getUiLang() === "en"
-              ? "TCU publishes the Guidebook and admission standards for universities in Tanzania."
-              : "TCU inachapisha Guidebook na viwango vya kujiunga vyuo nchini.";
-        if (lower.indexOf("heslb") !== -1 || lower.indexOf("mkopo") !== -1)
-          reply =
-            getUiLang() === "en"
-              ? "HESLB handles higher-education loans — check OLAS windows and matching names on NIDA."
-              : "HESLB inashughulikia mikopo — angalia dirisha la OLAS na majina yanayolingana na NIDA.";
-        setTimeout(function () {
-          pushDock("bot", reply);
-        }, 280);
+  }
+
+  function refreshScrollMotionSoon() {
+    window.requestAnimationFrame(function () {
+      initScrollMotion();
+    });
+  }
+
+  function initScrollReveal() {
+    initScrollMotion();
+  }
+
+  var newsPortfolioAutoTimer = null;
+
+  function initNewsPortfolio() {
+    var scroll = document.getElementById("newsPortfolioScroll");
+    var prevBtn = document.getElementById("newsScrollPrev");
+    var nextBtn = document.getElementById("newsScrollNext");
+    var items = window.MWONGOZO_NEWS;
+    if (!scroll || !items || !items.length) return;
+
+    var lang = getUiLang();
+    var readMore = lang === "en" ? "Read more" : "Soma zaidi";
+
+    scroll.innerHTML = items
+      .map(function (item, i) {
+        var title = lang === "en" ? item.title_en : item.title_sw;
+        var desc = lang === "en" ? item.desc_en : item.desc_sw;
+        var href = item.link || "#";
+        var external = href.indexOf("http") === 0;
+        var tagCls =
+          item.tag === "loan"
+            ? "loan"
+            : item.tag === "results"
+              ? "results"
+              : item.tag === "guide"
+                ? "guide"
+                : "tcu";
+        return (
+          '<a class="news-portfolio-card sr-child" role="listitem" href="' +
+          escapeHtmlAttr(href) +
+          '"' +
+          (external ? ' target="_blank" rel="noopener noreferrer"' : "") +
+          '">' +
+          '<div class="news-portfolio-card__media">' +
+          '<img src="' +
+          escapeHtmlAttr(item.image) +
+          '" data-remote="' +
+          escapeHtmlAttr(item.imageRemote || "") +
+          '" alt="' +
+          escapeHtml(item.category) +
+          '" width="400" height="168" loading="lazy" decoding="async" />' +
+          '<span class="news-portfolio-card__tag news-portfolio-card__tag--' +
+          escapeHtmlAttr(tagCls) +
+          '">' +
+          escapeHtml(item.category) +
+          "</span></div>" +
+          '<div class="news-portfolio-card__body">' +
+          '<div class="news-portfolio-card__meta"><time datetime="' +
+          escapeHtmlAttr(String(item.date)) +
+          '">' +
+          escapeHtml(String(item.date)) +
+          "</time></div>" +
+          "<h3>" +
+          escapeHtml(title) +
+          "</h3>" +
+          "<p>" +
+          escapeHtml(desc) +
+          "</p>" +
+          '<span class="news-portfolio-card__link">' +
+          readMore +
+          ' <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></span>' +
+          "</div></a>"
+        );
+      })
+      .join("");
+
+    scroll.querySelectorAll("img[data-remote]").forEach(function (img) {
+      img.addEventListener("error", function () {
+        var remote = img.getAttribute("data-remote");
+        if (!remote || img.dataset.fellback === "1") return;
+        img.dataset.fellback = "1";
+        img.src = remote;
       });
-      input.addEventListener("keydown", function (e) {
-        if (e.key === "Enter" && !e.shiftKey) {
-          e.preventDefault();
-          sendBtn.click();
+    });
+
+    function scrollStep(dir) {
+      var card = scroll.querySelector(".news-portfolio-card");
+      var gap = 18;
+      var amount = card ? card.offsetWidth + gap : 318;
+      scroll.scrollBy({ left: dir * amount, behavior: "smooth" });
+    }
+
+    if (prevBtn && !prevBtn.dataset.bound) {
+      prevBtn.dataset.bound = "1";
+      prevBtn.addEventListener("click", function () { scrollStep(-1); });
+    }
+    if (nextBtn && !nextBtn.dataset.bound) {
+      nextBtn.dataset.bound = "1";
+      nextBtn.addEventListener("click", function () { scrollStep(1); });
+    }
+
+    scroll.classList.add("sr-stagger");
+    scroll.querySelectorAll(".news-portfolio-card").forEach(function (card, i) {
+      card.classList.add("sr-child");
+      card.style.setProperty("--sr-i", String(i));
+    });
+
+    if (newsPortfolioAutoTimer) clearInterval(newsPortfolioAutoTimer);
+    var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (!reduce) {
+      newsPortfolioAutoTimer = setInterval(function () {
+        if (scroll.matches(":hover")) return;
+        var max = scroll.scrollWidth - scroll.clientWidth - 2;
+        if (max <= 0) return;
+        if (scroll.scrollLeft >= max) scroll.scrollTo({ left: 0, behavior: "smooth" });
+        else scrollStep(1);
+      }, 4200);
+    }
+  }
+
+  function initPartnerMarquee() {
+    var inner = document.getElementById("partnerMarqueeInner");
+    var partners = window.MWONGOZO_PARTNERS;
+    if (!inner || !partners || !partners.length) return;
+    function buildSet(eager) {
+      return partners
+        .map(function (p, i) {
+          var src = "/static/partners/" + p.file;
+          var fb = p.fallbackFile ? "/static/partners/" + p.fallbackFile : "";
+          var alt = escapeHtml(p.name);
+          var load = eager && i < 6 ? "eager" : "lazy";
+          var fetchp = eager && i < 6 ? ' fetchpriority="high"' : "";
+          var label = escapeHtml(p.label || p.name || "");
+          return (
+            '<a class="partner-marquee__item" href="' +
+            escapeHtmlAttr(p.url) +
+            '" target="_blank" rel="noopener noreferrer" title="' +
+            alt +
+            '"><span class="partner-marquee__unit">' +
+            '<span class="partner-marquee__ring">' +
+            '<img src="' +
+            escapeHtmlAttr(src) +
+            '"' +
+            (fb ? ' data-fallback="' + escapeHtmlAttr(fb) + '"' : "") +
+            ' alt="' +
+            alt +
+            '" width="40" height="40" loading="' +
+            load +
+            '"' +
+            fetchp +
+            ' decoding="async" /></span>' +
+            '<span class="partner-marquee__name">' +
+            label +
+            "</span></span></a>"
+          );
+        })
+        .join("");
+    }
+    inner.innerHTML = buildSet(true) + buildSet(false);
+    inner.querySelectorAll("img[data-fallback]").forEach(function (img) {
+      img.addEventListener("error", function onErr() {
+        var fb = img.getAttribute("data-fallback");
+        if (!fb || img.dataset.fellback === "1") return;
+        img.dataset.fellback = "1";
+        img.src = fb;
+      });
+    });
+    var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (!reduce) {
+      inner.classList.add("is-running");
+    } else {
+      inner.style.flexWrap = "wrap";
+      inner.style.justifyContent = "center";
+      inner.style.width = "100%";
+    }
+  }
+
+  var fabLabelAnimSeq = 0;
+
+  function initFabChatLabelAnimation() {
+    var label = document.getElementById("fabChatLabel");
+    var fab = document.getElementById("fabChat");
+    if (!label || !fab) return;
+    if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    var phrasesSw = ["Tupige story", "Uliza SAM...", "Msaada wa haraka", "NECTA · TCU · HESLB"];
+    var phrasesEn = ["Let's chat", "Ask SAM...", "Quick help", "NECTA · TCU · HESLB"];
+    var mySeq = ++fabLabelAnimSeq;
+    var idx = 0;
+
+    function phrases() {
+      return getUiLang() === "en" ? phrasesEn : phrasesSw;
+    }
+
+    function typeIn(text, done) {
+      var i = 0;
+      var tid = setInterval(function () {
+        if (mySeq !== fabLabelAnimSeq) {
+          clearInterval(tid);
+          return;
         }
+        i += 1;
+        label.textContent = text.slice(0, i);
+        if (fab) fab.setAttribute("aria-label", label.textContent);
+        if (i >= text.length) {
+          clearInterval(tid);
+          if (typeof done === "function") setTimeout(done, 1700);
+        }
+      }, 42);
+    }
+
+    function erase(done) {
+      var tid = setInterval(function () {
+        if (mySeq !== fabLabelAnimSeq) {
+          clearInterval(tid);
+          return;
+        }
+        var t = label.textContent || "";
+        if (!t.length) {
+          clearInterval(tid);
+          if (typeof done === "function") done();
+          return;
+        }
+        label.textContent = t.slice(0, -1);
+        if (fab) fab.setAttribute("aria-label", label.textContent || "Chat");
+      }, 28);
+    }
+
+    function loop() {
+      if (mySeq !== fabLabelAnimSeq) return;
+      var list = phrases();
+      var phrase = list[idx % list.length];
+      idx += 1;
+      typeIn(phrase, function () {
+        erase(loop);
       });
+    }
+
+    label.textContent = "";
+    loop();
+  }
+
+  function initFabChatDock() {
+    if (typeof window.SamChat !== "undefined" && window.SamChat.initDock) {
+      window.__samDock = window.SamChat.initDock();
+      return;
     }
   }
 
@@ -526,6 +2019,7 @@
       if (dashboardShell) dashboardShell.classList.remove("hidden");
       navigateDash("input");
       localStorage.setItem("mwongozo-entered", "1");
+      refreshScrollMotionSoon();
     });
   }
 
@@ -535,22 +2029,199 @@
       if (dashboardShell) dashboardShell.classList.remove("dashboard--results-mode");
       if (dashboardShell) dashboardShell.classList.add("hidden");
       if (landingView) landingView.classList.remove("hidden");
-      window.scrollTo(0, 0);
+      scrollToTopAnimated();
       initLandingMetaAnimation();
+      refreshScrollMotionSoon();
     });
+  }
+
+  function clearPanelScrollMotion(panelId) {
+    var panel = document.querySelector('[data-panel="' + panelId + '"]');
+    if (!panel) return;
+    panel.querySelectorAll(".sr, .sr-stagger, .sr-child, .scroll-reveal").forEach(function (el) {
+      el.classList.remove("sr", "sr-stagger", "sr-child", "scroll-reveal", "is-visible", "is-revealed");
+      el.style.removeProperty("--sr-delay");
+      el.style.removeProperty("--sr-i");
+      el.style.opacity = "";
+      el.style.transform = "";
+    });
+  }
+
+  function revealPanelMotion(panelId) {
+    var panel = document.querySelector('[data-panel="' + panelId + '"]');
+    if (!panel) return;
+    panel.querySelectorAll(".sr, .sr-stagger, .sr-child, .scroll-reveal").forEach(revealScrollNode);
+  }
+
+  function scrollActivePanelToTop(panelId) {
+    var panel = document.querySelector('[data-panel="' + panelId + '"]');
+    if (!panel || panel.classList.contains("hidden")) return;
+    if (panelId === "assistant") {
+      scrollHelpPanelIntoView();
+      return;
+    }
+    if (panelId === "loan") {
+      scrollLoanPanelIntoView();
+      return;
+    }
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+    var appMain = document.querySelector(".app-main");
+    if (appMain) appMain.scrollTop = 0;
+    requestAnimationFrame(function () {
+      window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+      if (appMain) appMain.scrollTop = 0;
+    });
+  }
+
+  function scrollHelpPanelIntoView() {
+    var panel = document.querySelector('[data-panel="assistant"]');
+    if (!panel || panel.classList.contains("hidden")) return;
+    var anchor = panel.querySelector(".help-hero") || panel;
+    var topInset =
+      (parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--topbar-h")) || 52) +
+      (parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--topbar-offset")) || 10) +
+      12;
+
+    function resetScrollers() {
+      window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+      if (dashboardShell) dashboardShell.scrollTop = 0;
+      var appShell = document.querySelector(".app-shell");
+      if (appShell) appShell.scrollTop = 0;
+      var appMain = document.querySelector(".app-main");
+      if (appMain) appMain.scrollTop = 0;
+      var chatLog = document.getElementById("chatMessages");
+      if (chatLog) chatLog.scrollTop = 0;
+    }
+
+    function alignToTop() {
+      var rect = anchor.getBoundingClientRect();
+      var targetY = window.scrollY + rect.top - topInset;
+      if (Math.abs(rect.top - topInset) > 2) {
+        window.scrollTo({ top: Math.max(0, targetY), left: 0, behavior: "auto" });
+      }
+    }
+
+    resetScrollers();
+    requestAnimationFrame(function () {
+      alignToTop();
+      requestAnimationFrame(function () {
+        resetScrollers();
+        alignToTop();
+      });
+    });
+    setTimeout(function () {
+      alignToTop();
+    }, 80);
+    setTimeout(function () {
+      alignToTop();
+    }, 220);
+  }
+
+  function scrollLoanPanelIntoView() {
+    var panel = document.querySelector('[data-panel="loan"]');
+    if (!panel || panel.classList.contains("hidden")) return;
+    var anchor = panel.querySelector(".loan-topbar") || panel;
+    var topInset =
+      (parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--topbar-h")) || 52) +
+      (parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--topbar-offset")) || 10) +
+      12;
+
+    function resetScrollers() {
+      window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+      if (dashboardShell) dashboardShell.scrollTop = 0;
+      var appMain = document.querySelector(".app-main");
+      if (appMain) appMain.scrollTop = 0;
+    }
+
+    function alignToTop() {
+      var rect = anchor.getBoundingClientRect();
+      var targetY = window.scrollY + rect.top - topInset;
+      if (Math.abs(rect.top - topInset) > 2) {
+        window.scrollTo({ top: Math.max(0, targetY), left: 0, behavior: "auto" });
+      }
+    }
+
+    resetScrollers();
+    requestAnimationFrame(function () {
+      alignToTop();
+      requestAnimationFrame(alignToTop);
+    });
+    setTimeout(alignToTop, 80);
+  }
+
+  function measureHelpPanelLayout() {
+    scrollHelpPanelIntoView();
+  }
+
+  function formatInstitutionCellHTML(rec) {
+    var name = String((rec.programme && rec.programme.institution_name) || "").trim();
+    var code = String((rec.programme && rec.programme.institution_code) || "").trim();
+    if (!name && code) {
+      return '<span class="rec-inst-line">' + escapeHtml(code) + "</span>";
+    }
+    if (!name) {
+      return '<span class="rec-inst-line">—</span>';
+    }
+    if (!code || name.toUpperCase().indexOf(code.toUpperCase()) !== -1) {
+      return '<span class="rec-inst-line rec-inst-line--full">' + escapeHtml(name) + "</span>";
+    }
+    return (
+      '<span class="rec-inst-line rec-inst-line--full">' +
+      '<span class="rec-inst-name">' +
+      escapeHtml(name) +
+      '</span> <span class="rec-inst-code">(' +
+      escapeHtml(code) +
+      ")</span></span>"
+    );
+  }
+
+  function buildRecColumnHeadersHTML(L) {
+    return (
+      '<div class="rec-column-headers" role="row">' +
+      '<span class="rec-column-headers__cell reco-col-num">' +
+      escapeHtml(L.results_col_rank) +
+      '</span><span class="rec-column-headers__cell reco-col-inst">' +
+      escapeHtml(L.results_col_inst) +
+      '</span><span class="rec-column-headers__cell reco-col-prog">' +
+      escapeHtml(L.results_col_prog) +
+      '</span><span class="rec-column-headers__cell reco-col-region">' +
+      escapeHtml(L.results_col_region) +
+      '</span><span class="rec-column-headers__cell reco-col-pts">' +
+      escapeHtml(L.results_col_pts) +
+      '</span><span class="rec-column-headers__cell reco-col-conf">' +
+      escapeHtml(L.results_col_conf) +
+      '</span><span class="rec-column-headers__cell reco-col-type">' +
+      escapeHtml(L.results_col_type) +
+      '</span><span class="rec-column-headers__cell reco-col-actions">' +
+      escapeHtml(L.results_col_actions) +
+      "</span></div>"
+    );
   }
 
   function navigateDash(panel) {
     var showPanel = "main";
     if (panel === "home") showPanel = "home";
+    else if (panel === "saved") showPanel = "saved";
     else if (panel === "directory") showPanel = "directory";
     else if (panel === "loan") showPanel = "loan";
     else if (panel === "assistant") showPanel = "assistant";
-    else if (panel === "news") showPanel = "news";
     else showPanel = "main";
+    window.scrollTo(0, 0);
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
     document.querySelectorAll("[data-panel]").forEach(function (p) {
-      p.classList.toggle("hidden", p.getAttribute("data-panel") !== showPanel);
+      var active = p.getAttribute("data-panel") === showPanel;
+      p.classList.toggle("hidden", !active);
+      p.style.display = active ? "" : "none";
     });
+    document.body.classList.toggle("dash-panel-assistant", showPanel === "assistant");
+    document.body.classList.toggle("dash-panel-results", panel === "results");
     document.querySelectorAll("[data-dash-nav]").forEach(function (btn) {
       btn.classList.toggle("is-active", btn.getAttribute("data-dash-nav") === panel);
     });
@@ -558,26 +2229,56 @@
     if (panel === "results") showResultsView();
     if (panel === "directory" && directoryBody && !directoryBody.dataset.loaded) loadDirectoryData();
     if (panel === "home") loadMetaSummary();
+    if (panel === "saved") {
+      renderSavedPage();
+      if (isLoggedIn()) syncAllSavedFromServer();
+    }
+    if (showPanel === "assistant") clearPanelScrollMotion("assistant");
+    if (showPanel !== "main") scrollActivePanelToTop(showPanel);
+    revealPanelMotion(showPanel);
+    refreshScrollMotionSoon();
+    requestAnimationFrame(function () {
+      if (showPanel === "assistant") clearPanelScrollMotion("assistant");
+      if (showPanel !== "main") scrollActivePanelToTop(showPanel);
+    });
+    if (panel === "loan") {
+      if (typeof window.initLoanTracker === "function") window.initLoanTracker();
+      scrollLoanPanelIntoView();
+      setTimeout(scrollLoanPanelIntoView, 100);
+    }
+    if (panel === "assistant" && typeof window.initHelpPanel === "function") window.initHelpPanel();
+    if (showPanel === "assistant") {
+      scrollHelpPanelIntoView();
+      requestAnimationFrame(function () {
+        scrollHelpPanelIntoView();
+      });
+      setTimeout(scrollHelpPanelIntoView, 120);
+    }
   }
+
+  window.scrollHelpPanelIntoView = scrollHelpPanelIntoView;
 
   var landMetaAnimSeq = 0;
 
   function loadMetaSummary() {
-    if (!metaStatsEl) return;
     if (typeof MwongozoApi === "undefined") return;
     MwongozoApi.fetchJson("/meta", { method: "GET" })
       .then(function (m) {
-        metaStatsEl.innerHTML =
-          '<div class="stat-card glass"><span class="stat-value">' +
-          (m.programmes_loaded || "—") +
-          '</span><span class="stat-label">Programme zilizopakiwa</span></div>' +
-          '<div class="stat-card glass"><span class="stat-value">' +
-          (m.institutions_covered && m.institutions_covered.length) +
-          '</span><span class="stat-label">Taasisi</span></div>';
+        homeMeta = m || homeMeta;
+        if (metaStatsEl) {
+          metaStatsEl.innerHTML =
+            '<div class="stat-card glass"><span class="stat-value">' +
+            (m.programmes_loaded || "—") +
+            '</span><span class="stat-label">Programme zilizopakiwa</span></div>' +
+            '<div class="stat-card glass"><span class="stat-value">' +
+            (m.institutions_covered && m.institutions_covered.length) +
+            '</span><span class="stat-label">Taasisi</span></div>';
+        }
+        renderHomeDashboard();
       })
       .catch(function () {
-        metaStatsEl.innerHTML =
-          '<p class="muted small">Haiwezi kupakia takwimu sasa. Jaribu tena baadaye.</p>';
+        if (metaStatsEl) metaStatsEl.innerHTML = '<p class="muted small">' + escapeHtml(t("meta_load_fail")) + "</p>";
+        renderHomeDashboard();
       });
   }
 
@@ -593,6 +2294,77 @@
       else el.textContent = String(target);
     }
     requestAnimationFrame(frame);
+  }
+
+  function parseHeroStatDisplay(text) {
+    var raw = String(text || "").trim();
+    var m = raw.match(/^(\d+)\s*(\+|%)?$/);
+    if (!m) return { value: 0, suffix: raw };
+    return { value: parseInt(m[1], 10), suffix: m[2] || "" };
+  }
+
+  function animateHeroStatEl(el, target, suffix, ms) {
+    if (!el) return;
+    target = Math.max(0, Math.floor(Number(target) || 0));
+    suffix = suffix || "";
+    var start = performance.now();
+    function frame(t) {
+      var u = Math.min(1, (t - start) / ms);
+      var eased = 1 - (1 - u) * (1 - u);
+      el.textContent = String(Math.round(target * eased)) + suffix;
+      if (u < 1) requestAnimationFrame(frame);
+      else el.textContent = String(target) + suffix;
+    }
+    requestAnimationFrame(frame);
+  }
+
+  var heroStatsCycleTimer = null;
+
+  function initHeroStatsCycle() {
+    var nums = document.querySelectorAll("[data-hero-stat]");
+    if (!nums.length) return;
+    if (heroStatsCycleTimer) clearInterval(heroStatsCycleTimer);
+
+    function applyFromMeta(meta) {
+      meta = meta || {};
+      var instN = Array.isArray(meta.institutions_covered) ? meta.institutions_covered.length : 60;
+      var progN = Number(meta.programmes_loaded) || 400;
+      var map = {
+        institutions: { value: instN, suffix: "+" },
+        programmes: { value: progN, suffix: "+" },
+        tcu: { value: 100, suffix: "%" },
+        free: null,
+      };
+      nums.forEach(function (el) {
+        var key = el.getAttribute("data-stat-key") || "";
+        if (key === "free") return;
+        var spec = map[key];
+        if (!spec) {
+          var parsed = parseHeroStatDisplay(el.textContent);
+          animateHeroStatEl(el, parsed.value, parsed.suffix, 1100);
+          return;
+        }
+        animateHeroStatEl(el, spec.value, spec.suffix, 1200);
+      });
+    }
+
+    function pulse() {
+      var fetchMeta =
+        typeof MwongozoApi !== "undefined"
+          ? MwongozoApi.fetchJson("/meta", { method: "GET" })
+          : fetch("/meta").then(function (r) {
+              return r.json();
+            });
+      fetchMeta.then(applyFromMeta).catch(function () {
+        nums.forEach(function (el) {
+          var p = parseHeroStatDisplay(el.textContent);
+          animateHeroStatEl(el, p.value, p.suffix, 900);
+        });
+      });
+    }
+
+    pulse();
+    heroStatsCycleTimer = setInterval(pulse, 14000);
   }
 
   function runTypewriter(el, fullText, msPerChar, mySeq, done) {
@@ -630,10 +2402,12 @@
       if (mySeq !== landMetaAnimSeq) return;
       function applyMeta(m) {
         if (mySeq !== landMetaAnimSeq) return;
+        homeMeta = m || homeMeta;
         var p = Number(m.programmes_loaded) || 0;
         var ins = Array.isArray(m.institutions_covered) ? m.institutions_covered.length : 0;
         animateCountTo(nPro, p, 900);
         animateCountTo(nInst, ins, 900);
+        renderHomeDashboard();
       }
       if (typeof MwongozoApi !== "undefined") {
         MwongozoApi.fetchJson("/meta", { method: "GET" }).then(applyMeta).catch(function () {});
@@ -648,36 +2422,474 @@
     });
   }
 
+  function instOwnership(code) {
+    var inst = institutionsByCode[code];
+    return (inst && inst.ownership) || "public";
+  }
+
+  function setDirectoryView(view) {
+    directoryView = view === "programmes" ? "programmes" : "institutions";
+    document.querySelectorAll("[data-dir-view]").forEach(function (btn) {
+      var on = btn.getAttribute("data-dir-view") === directoryView;
+      btn.classList.toggle("is-active", on);
+      btn.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    if (dirInstitutionsPanel) dirInstitutionsPanel.classList.toggle("hidden", directoryView !== "institutions");
+    if (dirProgrammesPanel) dirProgrammesPanel.classList.toggle("hidden", directoryView !== "programmes");
+    if (directoryView === "institutions") {
+      renderUniversitiesGrid();
+      revealUniversityCards();
+    } else {
+      renderDirectoryTable();
+    }
+  }
+
+  function mergeLiveSummaries(summaries) {
+    if (!summaries || !institutionList.length) return 0;
+    var updated = 0;
+    institutionList = institutionList.map(function (inst) {
+      var live = summaries[inst.code];
+      if (!live || live.status !== "ok" || !(live.programme_count > 0)) return inst;
+      updated += 1;
+      var merged = Object.assign({}, inst, {
+        programme_count: live.programme_count,
+        programme_preview: (live.programmes || []).slice(0, 5),
+        programme_source: "official",
+        source_label: live.source_label || "Tovuti rasmi",
+        programmes_url: live.source_url || inst.programmes_url,
+        live_fetched_at: live.fetched_at,
+      });
+      institutionsByCode[inst.code] = merged;
+      return merged;
+    });
+    return updated;
+  }
+
+  function enrichInstitutionsFromOfficialSites() {
+    if (typeof MwongozoApi === "undefined") return Promise.resolve(0);
+    return MwongozoApi.fetchJson("/institutions/live-summaries?refresh=15", { method: "GET" })
+      .then(function (payload) {
+        var n = mergeLiveSummaries((payload && payload.summaries) || {});
+        if (directoryView === "institutions") {
+          renderUniversitiesGrid();
+          pulseUnivGridRefresh();
+        }
+        var Lm = I18N[getUiLang()] || I18N.sw;
+        if (n > 0) toast((Lm.dir_live_partial || "Updated from official sites") + " (" + n + ")", "success");
+        return n;
+      })
+      .catch(function () {
+        return 0;
+      });
+  }
+
   function loadDirectoryData() {
     if (!directoryBody || typeof MwongozoApi === "undefined") return;
     directoryBody.innerHTML =
       '<tr><td colspan="5" class="muted">Inapakia orodha ya programme…</td></tr>';
+    if (univGrid)
+      univGrid.innerHTML = '<p class="muted small">' + escapeHtml(t("dir_loading")) + "</p>";
     Promise.all([
       MwongozoApi.fetchJson("/programmes", { method: "GET" }).catch(function () {
         return [];
       }),
-      MwongozoApi.fetchJson("/institutions", { method: "GET" }).catch(function () {
-        return [];
+      MwongozoApi.fetchJson("/institutions?source=catalogue", { method: "GET" }).catch(function () {
+        return MwongozoApi.fetchJson("/institutions", { method: "GET" }).catch(function () {
+          return [];
+        });
       }),
     ]).then(function (pair) {
       var programmes = pair[0] || [];
       var insts = pair[1] || [];
       institutionsByCode = {};
+      institutionList = Array.isArray(insts) ? insts.slice() : [];
       insts.forEach(function (i) {
         institutionsByCode[i.code] = i;
       });
       directoryRows = Array.isArray(programmes) ? programmes : [];
       directoryBody.dataset.loaded = "1";
-      if (!directoryRows.length) {
-        directoryBody.innerHTML =
-          '<tr><td colspan="5" class="muted">Hakuna data — angalia muunganisho wa server.</td></tr>';
-        toast("Orodha ya programme haipatikani kwa sasa", "warn");
+      if (!institutionList.length && !directoryRows.length) {
+        if (directoryBody)
+          directoryBody.innerHTML =
+            '<tr><td colspan="5" class="muted">Hakuna data — angalia muunganisho wa server.</td></tr>';
+        if (univGrid)
+          univGrid.innerHTML = '<p class="muted small">' + escapeHtml(t("dir_no_data")) + "</p>";
+        toast("Orodha haipatikani kwa sasa", "warn");
         return;
       }
       populateDirectoryFilters();
-      renderDirectoryTable();
-      toast("Orodha ya programme imepakuliwa", "success");
+      populateUnivFilters();
+      setDirectoryView(directoryView);
+      toast("Orodha ya vyuo imepakuliwa", "success");
+      var cachedLive = MwongozoApi.fetchJson("/institutions/live-summaries", { method: "GET" }).catch(function () {
+        return { summaries: {} };
+      });
+      cachedLive.then(function (payload) {
+        mergeLiveSummaries((payload && payload.summaries) || {});
+        if (directoryView === "institutions") renderUniversitiesGrid();
+      });
+      enrichInstitutionsFromOfficialSites();
     });
+  }
+
+  function populateUnivFilters() {
+    if (!univRegion) return;
+    var regions = [
+      ...new Set(institutionList.map(function (i) {
+        return i.region;
+      }).filter(Boolean)),
+    ].sort();
+    var regHtml =
+      '<option value="all">' +
+      escapeHtml((I18N[getUiLang()] || I18N.sw).dir_all_regions) +
+      "</option>" +
+      regions
+        .map(function (r) {
+          return '<option value="' + escapeHtmlAttr(r) + '">' + escapeHtml(r) + "</option>";
+        })
+        .join("");
+    univRegion.innerHTML = regHtml;
+  }
+
+  function filteredInstitutions() {
+    var q = (univSearch && univSearch.value.trim().toLowerCase()) || "";
+    var reg = (univRegion && univRegion.value) || "all";
+    var own = (univOwnership && univOwnership.value) || "all";
+    var kind = (univKind && univKind.value) || "all";
+    return institutionList.filter(function (i) {
+      var hay = [i.name, i.code, i.city, i.region, i.ownership, i.kind].join(" ").toLowerCase();
+      var okQ = !q || hay.indexOf(q) !== -1;
+      var okR = reg === "all" || String(i.region) === reg;
+      var okO = own === "all" || String(i.ownership) === own;
+      var okK = kind === "all" || String(i.kind) === kind;
+      return okQ && okR && okO && okK;
+    });
+  }
+
+  function ownershipLabel(own) {
+    var Lm = I18N[getUiLang()] || I18N.sw;
+    if (own === "private") return Lm.dir_private;
+    return Lm.dir_public;
+  }
+
+  function kindLabel(kind) {
+    var Lm = I18N[getUiLang()] || I18N.sw;
+    if (kind === "university") return Lm.dir_kind_univ;
+    if (kind === "college") return Lm.dir_kind_college;
+    return Lm.dir_kind_other;
+  }
+
+  function institutionSummary(inst) {
+    var lang = getUiLang();
+    if (lang === "en" && inst.summary_en) return inst.summary_en;
+    return inst.summary || "";
+  }
+
+  function truncateSummary(text, maxLen) {
+    if (!text) return "";
+    maxLen = maxLen || 118;
+    if (text.length <= maxLen) return text;
+    return text.slice(0, maxLen).replace(/\s+\S*$/, "") + "…";
+  }
+
+  function ensureInstitutionOption(code) {
+    if (!directoryInstitution || !code || code === "all") return;
+    var exists = false;
+    for (var i = 0; i < directoryInstitution.options.length; i++) {
+      if (directoryInstitution.options[i].value === code) {
+        exists = true;
+        break;
+      }
+    }
+    if (!exists && institutionsByCode[code]) {
+      var opt = document.createElement("option");
+      opt.value = code;
+      opt.textContent = institutionsByCode[code].name || code;
+      directoryInstitution.appendChild(opt);
+    }
+  }
+
+  function openInstitutionProgrammes(code) {
+    if (!code) return;
+    ensureInstitutionOption(code);
+    if (directoryInstitution) directoryInstitution.value = code;
+    setDirectoryView("programmes");
+    window.requestAnimationFrame(function () {
+      var panel = dirProgrammesPanel || document.getElementById("dirProgrammesPanel");
+      if (panel && panel.scrollIntoView) panel.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+
+  function programmeCountLabel(inst, Lm) {
+    if (inst && inst.programme_source === "official")
+      return Lm.dir_prog_official || "programme (tovuti rasmi)";
+    return Lm.dir_prog_verified || "programme (TCU)";
+  }
+
+  function openUnivModal(inst) {
+    if (!univModal || !inst) return;
+    var Lm = I18N[getUiLang()] || I18N.sw;
+    var lang = getUiLang();
+    var full = institutionSummary(inst);
+    var progN = inst.programme_count != null ? inst.programme_count : 0;
+    univModalInstCode = inst.code || "";
+    if (univModalTitle) univModalTitle.textContent = inst.name || "";
+    if (univModalMeta)
+      univModalMeta.textContent =
+        (inst.city || "") +
+        " · " +
+        (inst.region || "") +
+        " · " +
+        progN +
+        " " +
+        programmeCountLabel(inst, Lm);
+    if (univModalBody) univModalBody.textContent = full;
+    if (univModalSource)
+      univModalSource.textContent = inst.source_label
+        ? (lang === "en" ? "Source: " : "Chanzo: ") + inst.source_label
+        : "";
+    if (univModalPreview) {
+      var preview = Array.isArray(inst.programme_preview) ? inst.programme_preview : [];
+      var extra = progN > preview.length ? " +" + (progN - preview.length) + " " + (Lm.dir_preview_more || "") : "";
+      univModalPreview.innerHTML = preview
+        .map(function (name) {
+          return "<li>" + escapeHtml(name) + "</li>";
+        })
+        .join("");
+      if (extra && preview.length)
+        univModalPreview.innerHTML += '<li class="muted small">' + escapeHtml(extra.trim()) + "</li>";
+    }
+    var web = inst.programmes_url || inst.website || "";
+    if (univModalWebLink) {
+      if (web) {
+        univModalWebLink.href = web;
+        univModalWebLink.classList.remove("hidden");
+      } else univModalWebLink.classList.add("hidden");
+    }
+    if (univModalProgBtn) univModalProgBtn.textContent = Lm.dir_view_programmes || "Angalia programme";
+    if (inst.programme_source !== "official" && typeof MwongozoApi !== "undefined") {
+      MwongozoApi.fetchJson(
+        "/institutions/" + encodeURIComponent(inst.code) + "/programmes/live",
+        { method: "GET" }
+      )
+        .then(function (live) {
+          if (!live || live.status !== "ok" || !(live.programme_count > 0)) return;
+          mergeLiveSummaries({ [inst.code]: live });
+          institutionsByCode[inst.code] = institutionList.find(function (x) {
+            return x.code === inst.code;
+          }) || inst;
+          var refreshed = institutionsByCode[inst.code];
+          if (univModalBody && refreshed.summary) univModalBody.textContent = institutionSummary(refreshed);
+          if (univModalPreview && live.programmes) {
+            univModalPreview.innerHTML = live.programmes
+              .map(function (name) {
+                return "<li>" + escapeHtml(name) + "</li>";
+              })
+              .join("");
+          }
+          if (univModalMeta)
+            univModalMeta.textContent =
+              (refreshed.city || "") +
+              " · " +
+              (refreshed.region || "") +
+              " · " +
+              live.programme_count +
+              " " +
+              programmeCountLabel(refreshed, Lm);
+          if (univModalSource) univModalSource.textContent = live.source_label || "";
+        })
+        .catch(function () {});
+    }
+    univModal.classList.add("is-open");
+    univModal.setAttribute("aria-hidden", "false");
+    document.body.classList.add("univ-modal-open");
+  }
+
+  function closeUnivModal() {
+    if (!univModal) return;
+    univModal.classList.remove("is-open");
+    univModal.setAttribute("aria-hidden", "true");
+    document.body.classList.remove("univ-modal-open");
+    univModalInstCode = "";
+  }
+
+  function initUnivModal() {
+    if (!univModal) return;
+    if (univModal.parentElement !== document.body) document.body.appendChild(univModal);
+    univModal.querySelectorAll("[data-univ-modal-close]").forEach(function (el) {
+      el.addEventListener("click", closeUnivModal);
+    });
+    if (univModalProgBtn) {
+      univModalProgBtn.addEventListener("click", function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        var code = univModalInstCode;
+        closeUnivModal();
+        openInstitutionProgrammes(code);
+      });
+    }
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && univModal && univModal.classList.contains("is-open")) closeUnivModal();
+    });
+  }
+
+  function pulseUnivGridRefresh() {
+    if (!univGrid) return;
+    univGrid.classList.remove("univ-grid--refresh");
+    void univGrid.offsetWidth;
+    univGrid.classList.add("univ-grid--refresh");
+    window.setTimeout(function () {
+      univGrid.classList.remove("univ-grid--refresh");
+    }, 400);
+  }
+
+  function revealUniversityCards() {
+    if (!univGrid) return;
+    univGrid.querySelectorAll(".univ-card").forEach(function (card) {
+      card.classList.add("is-visible", "is-revealed", "univ-card--ready");
+    });
+  }
+
+  function revealRecommendationRows() {
+    if (!resultsEl) return;
+    resultsEl.querySelectorAll(".rec-table tbody tr").forEach(function (row) {
+      row.classList.remove("sr");
+      row.classList.add("is-visible", "is-revealed", "rec-row--ready");
+    });
+    var bundle = resultsEl.querySelector(".results-bundle");
+    if (bundle) {
+      bundle.classList.remove("sr");
+    }
+  }
+
+  function bindUnivGridEvents() {
+    if (!univGrid || univGridDelegated) return;
+    univGridDelegated = true;
+    univGrid.addEventListener("click", function (e) {
+      var moreBtn = e.target.closest("[data-univ-read-more]");
+      if (moreBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        var codeMore = moreBtn.getAttribute("data-univ-read-more") || "";
+        var instMore = institutionsByCode[codeMore];
+        if (instMore) openUnivModal(instMore);
+        return;
+      }
+      if (e.target.closest("a, button")) return;
+      var card = e.target.closest(".univ-card");
+      if (!card) return;
+      openInstitutionProgrammes(card.getAttribute("data-inst-code") || "");
+    });
+    univGrid.addEventListener("mousedown", function (e) {
+      var card = e.target.closest(".univ-card");
+      if (card) card.classList.add("is-active");
+    });
+    univGrid.addEventListener("mouseup", function () {
+      univGrid.querySelectorAll(".univ-card.is-active").forEach(function (c) {
+        c.classList.remove("is-active");
+      });
+    });
+    univGrid.addEventListener("mouseleave", function () {
+      univGrid.querySelectorAll(".univ-card.is-active").forEach(function (c) {
+        c.classList.remove("is-active");
+      });
+    });
+  }
+
+  function scheduleRenderUniversitiesGrid() {
+    if (univGridRenderTimer) window.clearTimeout(univGridRenderTimer);
+    univGridRenderTimer = window.setTimeout(function () {
+      univGridRenderTimer = null;
+      renderUniversitiesGrid();
+    }, 100);
+  }
+
+  function renderUniversitiesGrid() {
+    if (!univGrid) return;
+    var rows = filteredInstitutions().sort(function (a, b) {
+      return (b.programme_count || 0) - (a.programme_count || 0) || String(a.name).localeCompare(String(b.name));
+    });
+    var Lm = I18N[getUiLang()] || I18N.sw;
+    if (univResultCount)
+      univResultCount.textContent = rows.length + " " + Lm.dir_univ_count;
+    if (!rows.length) {
+      univGrid.innerHTML = '<p class="muted small">' + escapeHtml(t("dir_no_match")) + "</p>";
+      return;
+    }
+    univGrid.innerHTML = rows
+      .map(function (i, idx) {
+        var progN = i.programme_count != null ? i.programme_count : 0;
+        var excerpt = truncateSummary(institutionSummary(i), 108);
+        var preview = Array.isArray(i.programme_preview) ? i.programme_preview.slice(0, 3) : [];
+        var previewHtml = preview
+          .map(function (name) {
+            return '<span class="univ-card__chip">' + escapeHtml(name) + "</span>";
+          })
+          .join("");
+        if (progN > preview.length && preview.length)
+          previewHtml +=
+            '<span class="univ-card__chip univ-card__chip--more">+' +
+            (progN - preview.length) +
+            "</span>";
+        var web = i.programmes_url || i.website || "";
+        var link = web
+          ? '<a class="univ-card__link" href="' +
+            escapeHtmlAttr(web) +
+            '" target="_blank" rel="noopener" onclick="event.stopPropagation()">' +
+            escapeHtml(Lm.dir_official_site || "Tovuti") +
+            "</a>"
+          : "";
+        var officialCls = i.programme_source === "official" ? " univ-card--official" : "";
+        return (
+          '<article class="univ-card glass' +
+          officialCls +
+          '" role="listitem" tabindex="0" data-inst-code="' +
+          escapeHtmlAttr(i.code) +
+          '">' +
+          '<div class="univ-card__head">' +
+          '<h3 class="univ-card__title">' +
+          escapeHtml(i.name) +
+          "</h3>" +
+          '<span class="univ-card__badge univ-card__badge--' +
+          escapeHtmlAttr(i.ownership || "public") +
+          '">' +
+          escapeHtml(ownershipLabel(i.ownership)) +
+          "</span>" +
+          "</div>" +
+          '<p class="univ-card__meta muted small">' +
+          escapeHtml(i.city || "") +
+          " · " +
+          escapeHtml(i.region || "") +
+          "</p>" +
+          '<p class="univ-card__excerpt">' +
+          escapeHtml(excerpt) +
+          "</p>" +
+          (previewHtml ? '<div class="univ-card__chips">' + previewHtml + "</div>" : "") +
+          '<div class="univ-card__stats">' +
+          '<span class="univ-card__stat"><strong>' +
+          escapeHtml(String(progN)) +
+          "</strong> " +
+          escapeHtml(programmeCountLabel(i, Lm)) +
+          "</span>" +
+          '<span class="univ-card__stat">' +
+          escapeHtml(kindLabel(i.kind)) +
+          "</span>" +
+          "</div>" +
+          '<div class="univ-card__foot">' +
+          '<button type="button" class="univ-card__more" data-univ-read-more="' +
+          escapeHtmlAttr(i.code) +
+          '">' +
+          escapeHtml(Lm.dir_read_more || "Soma zaidi") +
+          "</button>" +
+          link +
+          "</div>" +
+          "</article>"
+        );
+      })
+      .join("");
+    bindUnivGridEvents();
+    revealUniversityCards();
+    refreshScrollMotionSoon();
   }
 
   function populateDirectoryFilters() {
@@ -692,29 +2904,52 @@
         return r.institution_code;
       }).filter(Boolean)),
     ].sort();
+    var categories = [
+      ...new Set(directoryRows.map(function (r) {
+        return r.category;
+      }).filter(Boolean)),
+    ].sort();
+    var Lm = I18N[getUiLang()] || I18N.sw;
     var regHtml =
-      '<option value="all">Mkoa wote</option>' +
+      '<option value="all">' +
+      escapeHtml(Lm.dir_all_regions) +
+      "</option>" +
       regions
         .map(function (r) {
           return '<option value="' + escapeHtmlAttr(r) + '">' + escapeHtml(r) + "</option>";
         })
         .join("");
     var instHtml =
-      '<option value="all">Chuo chote</option>' +
+      '<option value="all">' +
+      escapeHtml(Lm.dir_all_inst) +
+      "</option>" +
       instCodes
         .map(function (c) {
           var name = (institutionsByCode[c] && institutionsByCode[c].name) || c;
           return '<option value="' + escapeHtmlAttr(c) + '">' + escapeHtml(name) + "</option>";
         })
         .join("");
+    var catHtml =
+      '<option value="all">' +
+      escapeHtml(Lm.results_quick_all) +
+      "</option>" +
+      categories
+        .map(function (c) {
+          return '<option value="' + escapeHtmlAttr(c) + '">' + escapeHtml(c) + "</option>";
+        })
+        .join("");
     directoryRegion.innerHTML = regHtml;
     directoryInstitution.innerHTML = instHtml;
+    if (directoryCategory) directoryCategory.innerHTML = catHtml;
   }
 
   function filteredDirectoryRows() {
     var q = (directorySearch && directorySearch.value.trim().toLowerCase()) || "";
     var reg = (directoryRegion && directoryRegion.value) || "all";
     var inst = (directoryInstitution && directoryInstitution.value) || "all";
+    var own = (directoryOwnership && directoryOwnership.value) || "all";
+    var cat = (directoryCategory && directoryCategory.value) || "all";
+    var award = (directoryAward && directoryAward.value) || "all";
     return directoryRows.filter(function (r) {
       var hay = [
         r.name,
@@ -729,13 +2964,18 @@
       var okQ = !q || hay.indexOf(q) !== -1;
       var okR = reg === "all" || String(r.region) === reg;
       var okI = inst === "all" || String(r.institution_code) === inst;
-      return okQ && okR && okI;
+      var okO = own === "all" || instOwnership(r.institution_code) === own;
+      var okC = cat === "all" || String(r.category) === cat;
+      var okA = award === "all" || String(r.award_level) === award;
+      return okQ && okR && okI && okO && okC && okA;
     });
   }
 
   function renderDirectoryTable() {
     if (!directoryBody) return;
     var rows = filteredDirectoryRows();
+    var Lm = I18N[getUiLang()] || I18N.sw;
+    if (progResultCount) progResultCount.textContent = rows.length + " " + Lm.dir_prog_count;
     if (!rows.length) {
       directoryBody.innerHTML =
         '<tr><td colspan="5" class="muted">Hakuna matokeo ya kuchujwa.</td></tr>';
@@ -836,14 +3076,14 @@
     if (!nectaFetchBtn || !nectaLookupMsg) return;
     var pathway = pathwayInput.value;
     if (!pathway || (pathway !== "o_level" && pathway !== "a_level")) {
-      nectaLookupMsg.innerHTML = '<div class="warning">Chagua Form 4 au Form 6 kwanza.</div>';
+      nectaLookupMsg.innerHTML = '<div class="warning">' + escapeHtml(t("necta_pick_level")) + "</div>";
       toast("Chagua level kwanza", "warn");
       return;
     }
     var year = parseInt(nectaExamYear.value, 10);
     var candidate = nectaIndexNo.value.trim();
     if (!candidate) {
-      nectaLookupMsg.innerHTML = '<div class="warning">Weka nambari ya mtihani (CNO).</div>';
+      nectaLookupMsg.innerHTML = '<div class="warning">' + escapeHtml(t("necta_enter_cno")) + "</div>";
       return;
     }
     var L = I18N[getUiLang()] || I18N.sw;
@@ -882,11 +3122,17 @@
       var rec = data.record || {};
       if (isCsee && rec.division) {
         var div = String(rec.division).toUpperCase();
-        var allowed = ["I", "II", "III", "IV"];
+        var allowed = ["I", "II", "III", "IV", "0"];
         if (allowed.indexOf(div) !== -1) document.getElementById("division").value = div;
       }
       var school = rec.school_name || "";
       var cno = rec.candidate_number || candidate.toUpperCase();
+      setExamContext({
+        exam_number: cno,
+        exam_year: Number(year) || null,
+        source: isCsee ? "necta_csee_lookup" : "necta_acsee_lookup",
+        exam_level: isCsee ? "o_level" : "a_level",
+      });
       var divLine = rec.division ? " · Division " + rec.division : "";
       var cp = data.calculated_points || {};
       var ptsNum = isCsee ? cp.total_grade_points : cp.principal_points;
@@ -914,6 +3160,8 @@
       }
       var targetSection = pathway === "o_level" ? oLevelSection : aLevelSection;
       if (targetSection) targetSection.scrollIntoView({ behavior: "auto", block: "start" });
+      addRecentActivity("lookup", "NECTA lookup", (school || cno) + " · " + year);
+      renderHomeDashboard();
       toast("Matokeo yamepakuliwa kutoka NECTA/TETEA", "success");
     } catch (err) {
       nectaLookupMsg.innerHTML =
@@ -926,12 +3174,14 @@
 
   function setTheme(theme) {
     var nextTheme = theme === "light" ? "light" : "dark";
+    document.body.classList.add("is-theme-animating");
     document.body.dataset.theme = nextTheme;
     localStorage.setItem("mwongozo-theme", nextTheme);
-    var label = nextTheme === "light" ? "Dark mode" : "Light mode";
-    themeLabels.forEach(function (el) {
-      el.textContent = label;
-    });
+    refreshThemeLabels();
+    if (themeAnimTimer) clearTimeout(themeAnimTimer);
+    themeAnimTimer = setTimeout(function () {
+      document.body.classList.remove("is-theme-animating");
+    }, 200);
   }
 
   function showInputView() {
@@ -939,7 +3189,7 @@
     if (resultsView) resultsView.classList.add("hidden");
     if (mainWrapInner) mainWrapInner.classList.remove("wrap-inner--reco-focus");
     if (dashboardShell) dashboardShell.classList.remove("dashboard--results-mode");
-    window.scrollTo(0, 0);
+    scrollToTopAnimated();
   }
 
   function showResultsView() {
@@ -947,7 +3197,26 @@
     if (resultsView) resultsView.classList.remove("hidden");
     if (mainWrapInner) mainWrapInner.classList.add("wrap-inner--reco-focus");
     if (dashboardShell) dashboardShell.classList.add("dashboard--results-mode");
-    window.scrollTo(0, 0);
+    scrollToTopAnimated();
+    window.requestAnimationFrame(function () {
+      revealRecommendationRows();
+      syncRecoTableLayout();
+    });
+  }
+
+  function syncRecoTableLayout() {
+    var stack = document.querySelector(".reco-sticky-stack");
+    if (!stack) return;
+    var topbar = document.querySelector(".app-topbar");
+    var topbarBottom = topbar ? Math.ceil(topbar.getBoundingClientRect().bottom + 4) : 68;
+    document.documentElement.style.setProperty("--reco-filter-top", topbarBottom + "px");
+    var viewport = document.querySelector(".results-viewport--table");
+    if (viewport) viewport.scrollTop = 0;
+  }
+
+  if (!window.__mwRecoLayoutResize) {
+    window.__mwRecoLayoutResize = true;
+    window.addEventListener("resize", syncRecoTableLayout);
   }
 
   function escapeHtmlAttr(value) {
@@ -963,6 +3232,11 @@
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;");
+  }
+
+  function scrollToTopAnimated() {
+    var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    window.scrollTo({ top: 0, behavior: reduce ? "auto" : "smooth" });
   }
 
   function subjectRow(preset, level) {
@@ -1139,6 +3413,7 @@
         };
       });
     }
+    var examCtx = getExamContext() || {};
     return {
       pathway: pathway,
       a_level_scheme: document.getElementById("a_level_scheme").value,
@@ -1152,6 +3427,11 @@
           ? document.getElementById("language").value
           : document.getElementById("o_language").value,
       equivalent_qualification: null,
+      csee_division:
+        pathway === "o_level" ? document.getElementById("division").value || null : null,
+      exam_number: examCtx.exam_number || null,
+      exam_year: examCtx.exam_year || null,
+      source: examCtx.source || "recommend_form",
       notes:
         pathway === "o_level"
           ? [
@@ -1256,7 +3536,12 @@
       '<div class="reco-loading__track" aria-hidden="true"><div class="reco-loading__bar"></div></div>' +
       '<p class="reco-loading__text">' +
       escapeHtml(L.reco_loading) +
-      "</p></div>"
+      "</p>" +
+      '<div class="reco-skeleton-grid" aria-hidden="true">' +
+      '<div class="reco-skeleton-card"><span class="skeleton-chip"></span><span class="skeleton-line" style="width:78%"></span><span class="skeleton-line" style="width:62%"></span><div style="display:flex;gap:8px;flex-wrap:wrap"><span class="skeleton-pill"></span><span class="skeleton-pill"></span><span class="skeleton-pill"></span></div></div>' +
+      '<div class="reco-skeleton-card"><span class="skeleton-chip"></span><span class="skeleton-line" style="width:84%"></span><span class="skeleton-line" style="width:54%"></span><div style="display:flex;gap:8px;flex-wrap:wrap"><span class="skeleton-pill"></span><span class="skeleton-pill"></span></div></div>' +
+      '<div class="reco-skeleton-card"><span class="skeleton-chip"></span><span class="skeleton-line" style="width:72%"></span><span class="skeleton-line" style="width:68%"></span><div style="display:flex;gap:8px;flex-wrap:wrap"><span class="skeleton-pill"></span><span class="skeleton-pill"></span></div></div>' +
+      "</div></div>"
     );
   }
 
@@ -1350,8 +3635,21 @@
     var applyUrl = rec.institution_apply_url || rec.institution_website || "";
     var conf = Number(rec.assessment && rec.assessment.confidence != null ? rec.assessment.confidence : 0);
     var barW = Math.min(100, Math.max(4, conf)) + "%";
+    var bandClass = confidenceBandClass(rec.assessment && rec.assessment.confidence_band);
     var typeLabel = isReview ? L.results_borderline : L.results_direct;
     var matchClass = isReview ? "rec-row--review" : "rec-row--direct";
+    var saved = isProgrammeSaved(rec);
+    var instName = (rec.programme && rec.programme.institution_name) || "";
+    var instCode = (rec.programme && rec.programme.institution_code) || "";
+    var instTitle =
+      instName +
+      (instCode && instName && instName.toUpperCase().indexOf(instCode.toUpperCase()) === -1
+        ? " (" + instCode + ")"
+        : instCode && !instName
+          ? instCode
+          : "");
+    var progName = (rec.programme && rec.programme.name) || "";
+    var regionName = (rec.programme && rec.programme.region) || "—";
     var applyBtn = applyUrl
       ? '<a class="btn btn-secondary btn-sm rec-apply-link" href="' +
         escapeHtmlAttr(applyUrl) +
@@ -1359,6 +3657,17 @@
         escapeHtmlAttr(applyUrl) +
         '"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i></a> '
       : "";
+    var saveBtn =
+      '<button type="button" class="btn btn-secondary btn-sm rec-save-btn ' +
+      (saved ? "is-saved" : "") +
+      '" data-rec-save="' +
+      fidx +
+      '" title="' +
+      escapeHtmlAttr(saved ? "Unsave programme" : "Save programme") +
+      '">' +
+      '<i class="fa-' +
+      (saved ? "solid" : "regular") +
+      ' fa-bookmark" aria-hidden="true"></i></button> ';
     return (
       '<tr class="rec-row ' +
       matchClass +
@@ -1367,32 +3676,46 @@
       '">' +
       '<td class="rec-td-num">' +
       escapeHtml(String(rec.rank != null ? rec.rank : "—")) +
-      "</td>" +
-      "<td>" +
-      escapeHtml((rec.programme && rec.programme.institution_name) || "") +
-      '</td><td class="rec-td-prog"><strong>' +
-      escapeHtml((rec.programme && rec.programme.name) || "") +
-      '</strong></td><td>' +
-      escapeHtml((rec.programme && rec.programme.region) || "—") +
-      "</td><td>" +
+      '</td><td class="rec-td-inst" title="' +
+      escapeHtmlAttr(instTitle || instName) +
+      '">' +
+      formatInstitutionCellHTML(rec) +
+      '</td><td class="rec-td-prog" title="' +
+      escapeHtmlAttr(progName) +
+      '"><strong>' +
+      escapeHtml(progName) +
+      '</strong></td><td class="rec-td-region" title="' +
+      escapeHtmlAttr(regionName) +
+      '">' +
+      escapeHtml(regionName) +
+      '</td><td class="rec-td-pts" title="' +
+      escapeHtmlAttr(String(rec.student_points) + " / " + String(rec.minimum_required_points)) +
+      '">' +
       escapeHtml(String(rec.student_points)) +
       " / " +
       escapeHtml(String(rec.minimum_required_points)) +
-      '</td><td class="rec-td-conf"><div class="rec-mini-bar" title="' +
+      '</td><td class="rec-td-conf"><div class="rec-mini-bar ' +
+      bandClass +
+      '" title="' +
       escapeHtmlAttr(L.results_conf + " " + conf + "%") +
       '"><span style="width:' +
       barW +
-      '"></span></div><span class="rec-conf-meta">' +
-      escapeHtml(String(rec.assessment.confidence) + "% · " + String(rec.assessment.confidence_band)) +
-      '</span></td><td><span class="rec-pill">' +
-      escapeHtml(typeLabel) +
-      '</span></td><td class="rec-td-actions">' +
-      applyBtn +
-      '<button type="button" class="btn btn-secondary btn-sm" data-rec-detail="' +
-      fidx +
+      '"></span></div><span class="rec-conf-meta ' +
+      bandClass +
       '">' +
+      escapeHtml(String(rec.assessment.confidence) + "% · " + String(rec.assessment.confidence_band)) +
+      '</span></td><td class="rec-td-type"><span class="rec-pill">' +
+      escapeHtml(typeLabel) +
+      '</span></td><td class="rec-td-actions"><div class="rec-td-actions__inner">' +
+      saveBtn +
+      applyBtn +
+      '<button type="button" class="btn btn-secondary btn-sm rec-detail-btn" data-rec-detail="' +
+      fidx +
+      '" title="' +
+      escapeHtmlAttr(L.results_detail_btn) +
+      '"><i class="fa-solid fa-circle-info" aria-hidden="true"></i><span class="u-visually-hidden">' +
       escapeHtml(L.results_detail_btn) +
-      "</button></td></tr>"
+      "</span></button></div></td></tr>"
     );
   }
 
@@ -1450,7 +3773,7 @@
     var f = resultsPagination.filters || {};
     var L = I18N[getUiLang()] || I18N.sw;
     var allRegionsOpt =
-      '<option value="all">' + (getUiLang() === "en" ? "All regions" : "Mkoa wote") + "</option>" +
+      '<option value="all">' + escapeHtml(t("results_all_regions")) + "</option>" +
       regions
         .map(function (region) {
           return (
@@ -1465,7 +3788,7 @@
         })
         .join("");
     var allCatOpt =
-      '<option value="all">' + (getUiLang() === "en" ? "All categories" : "Category zote") + "</option>" +
+      '<option value="all">' + escapeHtml(t("results_all_categories")) + "</option>" +
       categories
         .map(function (category) {
           return (
@@ -1479,23 +3802,34 @@
           );
         })
         .join("");
+    var recoColgroup =
+      "<colgroup>" +
+      '<col class="reco-col-num" />' +
+      '<col class="reco-col-inst" />' +
+      '<col class="reco-col-prog" />' +
+      '<col class="reco-col-region" />' +
+      '<col class="reco-col-pts" />' +
+      '<col class="reco-col-conf" />' +
+      '<col class="reco-col-type" />' +
+      '<col class="reco-col-actions" />' +
+      "</colgroup>";
     var thead =
       "<thead><tr>" +
-      "<th>" +
+      "<th scope=\"col\">" +
       escapeHtml(L.results_col_rank) +
-      "</th><th>" +
+      '</th><th scope="col">' +
       escapeHtml(L.results_col_inst) +
-      "</th><th>" +
+      '</th><th scope="col">' +
       escapeHtml(L.results_col_prog) +
-      "</th><th>" +
+      '</th><th scope="col">' +
       escapeHtml(L.results_col_region) +
-      "</th><th>" +
+      '</th><th scope="col">' +
       escapeHtml(L.results_col_pts) +
-      "</th><th>" +
+      '</th><th scope="col">' +
       escapeHtml(L.results_col_conf) +
-      "</th><th>" +
+      '</th><th scope="col">' +
       escapeHtml(L.results_col_type) +
-      "</th><th>" +
+      '</th><th scope="col">' +
       escapeHtml(L.results_col_actions) +
       "</th></tr></thead>";
     var tbody =
@@ -1507,7 +3841,9 @@
         .join("") +
       "</tbody>";
     resultsEl.innerHTML =
-      '<div class="results-bundle glass results-bundle--table">' +
+      '<div class="results-bundle results-bundle--table">' +
+      '<div class="reco-sticky-stack">' +
+      '<div class="results-filters-sticky">' +
       '<div class="results-sticky-toolbar">' +
       '<div class="field"><label for="resultsRegionFilter">' +
       escapeHtml(L.results_mkoa) +
@@ -1523,18 +3859,23 @@
       '<option value="confidence_desc" ' +
       ((f.sort || "confidence_desc") === "confidence_desc" ? "selected" : "") +
       ">" +
-      (getUiLang() === "en" ? "High → low" : "Juu → chini") +
+      escapeHtml(t("results_sort_high")) +
       '</option><option value="confidence_asc" ' +
       ((f.sort || "confidence_desc") === "confidence_asc" ? "selected" : "") +
       ">" +
-      (getUiLang() === "en" ? "Low → high" : "Chini → juu") +
+      escapeHtml(t("results_sort_low")) +
       "</option></select></div></div>" +
       '<div class="results-toolbar-row2">' +
+      '<button type="button" class="btn btn-primary rec-save-analysis-btn" id="saveRecoAnalysisBtn" title="' +
+      escapeHtmlAttr(L.saved_save_run) +
+      '"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> ' +
+      escapeHtml(L.saved_save_run) +
+      '</button>' +
       '<input id="resultsSearch" type="search" placeholder="' +
       escapeHtmlAttr(L.results_search_ph) +
       '" value="' +
       escapeHtmlAttr(f.query || "") +
-      '" style="flex:1;min-width:160px;max-width:420px;" />' +
+      '" class="results-search-input" />' +
       '<button type="button" class="btn btn-secondary" data-quick-category="all">' +
       escapeHtml(L.results_quick_all) +
       '</button><button type="button" class="btn btn-secondary" data-quick-category="health">' +
@@ -1543,9 +3884,14 @@
       escapeHtml(L.results_quick_econ) +
       '</button><button type="button" class="btn btn-secondary" data-quick-category="law">' +
       escapeHtml(L.results_quick_law) +
-      "</button></div>" +
-      '<div class="results-viewport results-viewport--table"><table class="rec-table">' +
+      "</button></div></div>" +
+      '<div class="reco-table-head-wrap" aria-hidden="false">' +
+      '<table class="rec-table rec-table--head">' +
+      recoColgroup +
       thead +
+      "</table></div></div>" +
+      '<div class="results-viewport results-viewport--table"><table class="rec-table rec-table--body">' +
+      recoColgroup +
       tbody +
       '</table></div><div class="pagination-bar">' +
       '<div class="pagination-meta">Page ' +
@@ -1569,8 +3915,14 @@
     var categoryFilter = document.getElementById("resultsCategoryFilter");
     var sortFilter = document.getElementById("resultsSortFilter");
     var quickCategoryButtons = document.querySelectorAll("[data-quick-category]");
+    var saveButtons = document.querySelectorAll("[data-rec-save]");
     var prevButton = document.getElementById("prevResultsPage");
     var nextButton = document.getElementById("nextResultsPage");
+    var saveAnalysisBtn = document.getElementById("saveRecoAnalysisBtn");
+    if (saveAnalysisBtn) {
+      saveAnalysisBtn.addEventListener("click", saveCurrentRecommendations);
+    }
+    updateSaveAnalysisButtonState();
     if (searchInput) {
       searchInput.addEventListener("input", function () {
         resultsPagination.filters.query = searchInput.value;
@@ -1619,9 +3971,30 @@
         renderResultsPageTable();
       });
     });
+    saveButtons.forEach(function (button) {
+      button.addEventListener("click", function () {
+        var idx = Number(button.getAttribute("data-rec-save"));
+        var rec = resultsPagination._filteredSorted && resultsPagination._filteredSorted[idx];
+        if (!rec) return;
+        toggleSavedProgramme(rec);
+        renderHomeDashboard();
+        renderResultsPageTable();
+      });
+    });
+
+    revealRecommendationRows();
+    window.requestAnimationFrame(function () {
+      syncRecoTableLayout();
+      window.requestAnimationFrame(function () {
+        syncRecoTableLayout();
+        var vp = document.querySelector(".results-viewport--table");
+        if (vp) vp.scrollTop = 0;
+      });
+    });
+    refreshScrollMotionSoon();
   }
 
-  function renderRecommendations(data) {
+  function renderRecommendations(data, inputSnapshot) {
     var recommendations = (data.recommendations || []).map(function (rec) {
       return Object.assign({}, rec, { __isReview: false });
     });
@@ -1629,6 +4002,8 @@
       return Object.assign({}, rec, { __isReview: true });
     });
     var allRows = recommendations.concat(reviewCandidates).sort(renderResultsCompareRows);
+    lastRecommendBundle = buildRecommendBundlePayload(data, inputSnapshot || lastRecommendInputSnapshot || {});
+    updateAuthOnlyNav();
     resultsPagination.items = allRows;
     resultsPagination.page = 0;
     resultsPagination.directCount = recommendations.length;
@@ -1639,15 +4014,33 @@
     var comboHtml = renderCombinationPanel(data.combination_suggestions);
     if (!allRows.length) {
       resultSummaryEl.innerHTML = "";
+      var blockedMsg = data.csee_entry_message || "";
+      var emptyLead = data.csee_entry_blocked
+        ? blockedMsg || "CSEE Division 0 — hakuna njia ya cheti/diploma kwa sasa."
+        : "Hakuna programme iliyo eligible kwa input hii.";
       resultsEl.innerHTML =
-        '<div class="results-bundle glass results-bundle--table"><div class="error layout-block">Hakuna programme iliyo eligible kwa input hii.</div>' +
+        '<div class="results-bundle glass results-bundle--table"><div class="error layout-block">' +
+        escapeHtml(emptyLead) +
+        "</div>" +
         comboHtml +
-        '<p class="footer-note muted small">Jaribu combination nyingine au angalia strict requirements.</p></div>';
-      toast("Hakuna programme zilizo eligible", "warn");
+        '<p class="footer-note muted small">' +
+        (data.csee_entry_blocked
+          ? "Rudia mtihani wa CSEE au wasiliana na taasisi kwa maelekezo ya upya."
+          : "Jaribu combination nyingine au angalia strict requirements.") +
+        "</p></div>";
+      addRecentActivity("recommend", "Recommendations checked", "0 eligible programmes");
+      lastRecommendBundle = null;
+      updateAuthOnlyNav();
+      renderHomeDashboard();
+      toast(data.csee_entry_blocked ? "Division haihitimu" : "Hakuna programme zilizo eligible", "warn");
       return;
     }
+    delete resultSummaryEl.dataset.idle;
     resultSummaryEl.innerHTML = "";
     renderResultsPageTable();
+    updateSaveAnalysisButtonState();
+    addRecentActivity("recommend", "Recommendations ready", String(allRows.length) + " programmes returned");
+    renderHomeDashboard();
     var Ldone = I18N[getUiLang()] || I18N.sw;
     toast(Ldone.reco_success_line, "success", 5200);
   }
@@ -1662,24 +4055,22 @@
   }
 
   function handleChatSend() {
+    if (typeof window.helpPanelHandleSend === "function") {
+      window.helpPanelHandleSend();
+      return;
+    }
     if (!chatInput) return;
     var t = chatInput.value.trim();
     if (!t) return;
     pushChat("user", t);
     chatInput.value = "";
-    var lower = t.toLowerCase();
-    var reply =
-      "Ninaelewa swali lako. Kwa sasa msaada huu ni wa maelezo ya jumla: tumia fomu ya matokeo, thibitisha combination, kisha bonyeza **Pata Recommendations**. Kwa NECTA, tumia mwaka na CNO halisi.";
-    if (lower.indexOf("necta") !== -1 || lower.indexOf("nambari") !== -1) {
-      reply =
-        "Kupakia matokeo: chagua Form 4 au Form 6, weka mwaka na nambari ya mtihani (CNO), kisha **Pakua matokeo kutoka NECTA**. Mfumo hutumia NECTA au TETEA kulingana na mwaka.";
-    }
-    if (lower.indexOf("heslb") !== -1 || lower.indexOf("mkopo") !== -1) {
-      reply =
-        "Mkopo: hakikisha majina yanalingana na NIDA, angalia deadline za HESLB, na pakua nyaraka wazi. Sehemu ya **Mkopo & HESLB** ina muhtasari zaidi.";
-    }
+    var Lchat = I18N[getUiLang()] || I18N.sw;
     setTimeout(function () {
-      pushChat("bot", reply);
+      pushChat(
+        "bot",
+        Lchat.help_fallback ||
+          "Tumia kichupo Msaada kwa mada zilizopangwa."
+      );
     }, 320);
   }
 
@@ -1692,20 +4083,21 @@
     navigateDash("results");
     try {
       var payload = buildPayload();
+      lastRecommendInputSnapshot = payload;
       var response = await (MwongozoApi
-        ? MwongozoApi.fetchWithTimeout("/recommend", {
+        ? MwongozoApi.fetchWithTimeout("/recommend?limit=150", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload),
           })
-        : fetch("/recommend", {
+        : apiFetch("/recommend?limit=150", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload),
           }));
       var data = await response.json();
       if (!response.ok) throw new Error(data.detail || "Request failed");
-      renderRecommendations(data);
+      renderRecommendations(data, payload);
     } catch (error) {
       resultsEl.innerHTML = '<div class="error layout-block">' + escapeHtml(error.message) + "</div>";
       resultSummaryEl.innerHTML = '<div class="error">' + escapeHtml(error.message) + "</div>";
@@ -1730,6 +4122,7 @@
   });
   document.getElementById("loadExample").addEventListener("click", function () {
     populateFromPayload(samplePayload);
+    addRecentActivity("form", "Loaded example", "Sample data applied to form");
     toast("Mfano umejazwa", "success");
   });
   document.getElementById("clearForm").addEventListener("click", function () {
@@ -1753,10 +4146,12 @@
     if (nectaIndexNo) nectaIndexNo.value = "";
     if (nectaExamYear) nectaExamYear.innerHTML = "";
     if (formRecommendStatus) formRecommendStatus.innerHTML = "";
-    resultSummaryEl.innerHTML = '<div class="muted">Form imeclear. Chagua level kisha ujaze matokeo.</div>';
+    resultSummaryEl.dataset.idle = "1";
+    resultSummaryEl.innerHTML = '<div class="muted">' + t("input_cleared") + "</div>";
     resultsEl.innerHTML = "";
     showInputView();
     navigateDash("input");
+    addRecentActivity("form", "Form cleared", "Inputs reset to defaults");
     toast("Fomu imefutwa", "info");
   });
   themeToggles.forEach(function (btn) {
@@ -1794,15 +4189,28 @@
   var bootPanel = (bootParams.get("panel") || "").trim().toLowerCase();
   var ALLOW_BOOT_PANEL = {
     home: 1,
+    saved: 1,
     input: 1,
     results: 1,
     directory: 1,
     loan: 1,
     assistant: 1,
-    news: 1,
   };
   if (skipLanding) enterApp();
 
+  document.querySelectorAll("[data-dir-view]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      setDirectoryView(btn.getAttribute("data-dir-view"));
+    });
+  });
+  if (univSearch)
+    univSearch.addEventListener("input", scheduleRenderUniversitiesGrid);
+  if (univRegion)
+    univRegion.addEventListener("change", scheduleRenderUniversitiesGrid);
+  if (univOwnership)
+    univOwnership.addEventListener("change", scheduleRenderUniversitiesGrid);
+  if (univKind)
+    univKind.addEventListener("change", scheduleRenderUniversitiesGrid);
   if (directorySearch)
     directorySearch.addEventListener("input", function () {
       renderDirectoryTable();
@@ -1815,6 +4223,18 @@
     directoryInstitution.addEventListener("change", function () {
       renderDirectoryTable();
     });
+  if (directoryOwnership)
+    directoryOwnership.addEventListener("change", function () {
+      renderDirectoryTable();
+    });
+  if (directoryCategory)
+    directoryCategory.addEventListener("change", function () {
+      renderDirectoryTable();
+    });
+  if (directoryAward)
+    directoryAward.addEventListener("change", function () {
+      renderDirectoryTable();
+    });
 
   if (chatSend) chatSend.addEventListener("click", handleChatSend);
   if (chatInput)
@@ -1825,23 +4245,18 @@
       }
     });
 
-  document.querySelectorAll("[data-demo-auth]").forEach(function (btn) {
-    btn.addEventListener("click", function () {
-      toast(
-        getUiLang() === "en"
-          ? "Sign-in is UI demo only — no backend authentication yet."
-          : "Ingia / sajili: demo ya UI pekee — hakuna authentication kwenye backend bado.",
-        "info"
-      );
-    });
-  });
-
   document.querySelectorAll("[data-set-lang]").forEach(function (btn) {
     btn.addEventListener("click", function () {
       setUiLang(btn.getAttribute("data-set-lang") || "sw");
       if (landingView && !landingView.classList.contains("hidden")) {
         try {
+          initNewsPortfolio();
+        } catch (_e) {}
+        try {
           initLandingMetaAnimation();
+        } catch (_e) {}
+        try {
+          initFabChatLabelAnimation();
         } catch (_e) {}
       }
     });
@@ -1862,7 +4277,10 @@
     }
   }
   initHeroSlideshow();
+  initLazyMedia();
   if (!skipLanding) {
+    initPageEntrance();
+    initHeroStatsCycle();
     try {
       initLandingMetaAnimation();
     } catch (_e) {}
@@ -1871,8 +4289,23 @@
   if (savedLang === "en" || savedLang === "sw") setUiLang(savedLang);
   else {
     applyI18n();
-    updateHeroCaption();
   }
+  initNewsPortfolio();
+  initScrollMotion();
+  initUnivModal();
+  bindUnivGridEvents();
+  renderHomeDashboard();
+  updateAuthOnlyNav();
+  renderSavedPage();
+  if (saveRecoRunBtn) saveRecoRunBtn.addEventListener("click", saveCurrentRecommendations);
+  document.addEventListener("mwongozo:auth", function () {
+    updateAuthOnlyNav();
+    syncAllSavedFromServer();
+  });
+  whenAuthReady(function () {
+    updateAuthOnlyNav();
+    return syncAllSavedFromServer();
+  });
   document.addEventListener("click", function (e) {
     var btn = e.target.closest("[data-rec-detail]");
     if (!btn || !resultsEl || !resultsEl.contains(btn)) return;
@@ -1884,5 +4317,13 @@
     openModal(Lm.results_detail_title + " · " + ((rec.programme && rec.programme.name) || ""), buildRecDetailHTML(rec));
   });
 
+  initPartnerMarquee();
   initFabChatDock();
+  initFabChatLabelAnimation();
+
+  window.toast = toast;
+  window.addRecentActivity = addRecentActivity;
+  window.navigateDash = navigateDash;
+  window.clearPanelScrollMotion = clearPanelScrollMotion;
+  if (typeof window.initLoanTracker === "function") window.initLoanTracker();
 })();

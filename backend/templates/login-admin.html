@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="sw">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mwongozo Smart — Admin Login</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700&family=Syne:wght@600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
+  <link rel="stylesheet" href="/static/styles.css" />
+  <link rel="stylesheet" href="/static/auth/auth.css?v=20260519s" />
+</head>
+<body
+  class="auth-page auth-page--admin"
+  data-theme="dark"
+  data-auth-portal="admin"
+  data-login-url="/auth/admin/login"
+  data-success-url="/admin"
+>
+  <div class="auth-bg" aria-hidden="true">
+    <img src="/static/hero/5.jpg" alt="" class="auth-bg__img" />
+    <div class="auth-bg__overlay"></div>
+  </div>
+
+  <main class="auth-shell">
+    <article class="auth-card auth-card--corporate auth-card--admin">
+      <div class="auth-card__chrome">
+        <a href="/" class="auth-back"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i> <span data-auth-i18n="back">Rudi</span></a>
+        <div class="auth-chrome__actions">
+          <div class="lang-switch lang-switch--premium auth-lang-switch" role="group" data-auth-i18n-aria="langAria" aria-label="Lugha">
+            <button type="button" class="lang-switch__btn is-active" data-set-lang="sw">SW</button>
+            <button type="button" class="lang-switch__btn" data-set-lang="en">EN</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="auth-card__body">
+        <section class="auth-card__panel auth-card__panel--info">
+          <div class="auth-card__brand" aria-label="Mwongozo Smart">
+            <img src="/static/assets/mwongozo-logo.png" alt="" class="auth-card__logo" width="44" height="44" decoding="async" role="presentation" />
+            <span class="auth-card__brand-name">
+              <span class="auth-brand__mw">Mwongozo</span>
+              <span class="auth-brand__smart">Smart</span>
+            </span>
+          </div>
+
+          <header class="auth-card__header">
+            <h1 class="auth-title" id="authTitle">Usimamizi</h1>
+            <p class="auth-sub" id="authSub">Ingia kwa akaunti ya usimamizi — Mwongozo Smart.</p>
+          </header>
+
+          <footer class="auth-card__footer">
+            <p class="auth-footer__label">Mwongozo Smart</p>
+            <div class="auth-social" data-auth-i18n-aria="socialAria" aria-label="Mitandao ya kijamii">
+              <a href="https://www.facebook.com/" target="_blank" rel="noopener noreferrer" aria-label="Facebook"><i class="fa-brands fa-facebook-f"></i></a>
+              <a href="https://twitter.com/" target="_blank" rel="noopener noreferrer" aria-label="X"><i class="fa-brands fa-x-twitter"></i></a>
+              <a href="https://www.instagram.com/" target="_blank" rel="noopener noreferrer" aria-label="Instagram"><i class="fa-brands fa-instagram"></i></a>
+              <a href="https://www.linkedin.com/" target="_blank" rel="noopener noreferrer" aria-label="LinkedIn"><i class="fa-brands fa-linkedin-in"></i></a>
+              <a href="https://www.youtube.com/" target="_blank" rel="noopener noreferrer" aria-label="YouTube"><i class="fa-brands fa-youtube"></i></a>
+              <a href="mailto:team@mwongozo.smart" aria-label="Email"><i class="fa-solid fa-envelope"></i></a>
+            </div>
+            <p class="auth-card__links">
+              <a href="/auth/login" class="auth-card__link"><i class="fa-solid fa-user-graduate"></i> <span data-auth-i18n="linkStudent">Mwanafunzi</span></a>
+            </p>
+          </footer>
+        </section>
+
+        <section class="auth-card__panel auth-card__panel--form">
+          <form id="authForm" class="auth-form" novalidate>
+            <label class="auth-field">
+              <span data-auth-i18n="labelEmail">Barua pepe</span>
+              <input type="email" name="email" required autocomplete="username" data-auth-i18n-placeholder="phEmail" placeholder="wewe@barua.com" />
+            </label>
+            <label class="auth-field">
+              <span data-auth-i18n="labelPassword">Nenosiri</span>
+              <input type="password" name="password" required minlength="8" autocomplete="current-password" data-auth-i18n-placeholder="phPassword" placeholder="Angalau herufi 8" />
+            </label>
+            <p class="auth-error hidden" id="authError" role="alert"></p>
+            <div class="auth-form__actions">
+              <button type="submit" class="btn btn-primary btn-sm auth-submit" id="authSubmit">
+                <span>Ingia</span>
+              </button>
+            </div>
+          </form>
+        </section>
+      </div>
+    </article>
+  </main>
+
+  <script src="/static/auth/auth-page.js?v=20260519t"></script>
+</body>
+</html>

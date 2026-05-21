@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="sw">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mwongozo Smart — Admin Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700&family=Syne:wght@600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
+  <link rel="stylesheet" href="/static/styles.css" />
+  <link rel="stylesheet" href="/static/admin/admin.css" />
+</head>
+<body class="admin-page" data-theme="dark">
+  <div class="admin-bg" aria-hidden="true"></div>
+
+  <header class="admin-topbar glass">
+    <div class="admin-topbar__brand">
+      <span class="nav-brand__mw">MWONGOZO</span>
+      <span class="nav-brand__smart">SMART</span>
+      <span class="admin-topbar__badge">Admin</span>
+    </div>
+    <div class="admin-topbar__actions">
+      <span class="admin-topbar__mode muted small" id="adminDataMode">Live + synthetic</span>
+      <button type="button" class="btn btn-ghost btn-sm" id="adminThemeToggle" aria-label="Badilisha mandhari">
+        <i class="fa-solid fa-circle-half-stroke"></i>
+      </button>
+      <div class="admin-user-chip" id="adminUserChip">
+        <span class="admin-user-chip__avatar" id="adminAvatar">A</span>
+        <span class="admin-user-chip__email" id="adminEmail">—</span>
+      </div>
+      <a href="/" class="btn btn-ghost btn-sm"><i class="fa-solid fa-house"></i> Tovuti</a>
+      <button type="button" class="btn btn-secondary btn-sm" id="adminLogout"><i class="fa-solid fa-right-from-bracket"></i> Toka</button>
+    </div>
+  </header>
+
+  <main class="admin-main">
+    <section class="admin-hero">
+      <div>
+        <h1>Dashibodi ya Usimamizi</h1>
+        <p class="muted">Takwimu za katalogi, watumiaji, mienendo ya mapendekezo na usimamizi wa akaunti.</p>
+      </div>
+      <button type="button" class="btn btn-primary" id="adminRefresh"><i class="fa-solid fa-rotate"></i> Onyesha upya</button>
+    </section>
+
+    <section class="admin-kpi-grid" id="adminKpiGrid" aria-label="Takwimu kuu">
+      <article class="admin-kpi glass">
+        <div class="admin-kpi__icon"><i class="fa-solid fa-building-columns"></i></div>
+        <div class="admin-kpi__body">
+          <p class="admin-kpi__lbl">Vyuo / taasisi</p>
+          <p class="admin-kpi__val" data-kpi="institutions">—</p>
+          <p class="admin-kpi__sub muted small" data-kpi-sub="institutions">—</p>
+        </div>
+      </article>
+      <article class="admin-kpi glass">
+        <div class="admin-kpi__icon admin-kpi__icon--cyan"><i class="fa-solid fa-book-open"></i></div>
+        <div class="admin-kpi__body">
+          <p class="admin-kpi__lbl">Programme / kozi</p>
+          <p class="admin-kpi__val" data-kpi="programmes">—</p>
+          <p class="admin-kpi__sub muted small" data-kpi-sub="programmes">—</p>
+        </div>
+      </article>
+      <article class="admin-kpi glass">
+        <div class="admin-kpi__icon admin-kpi__icon--warm"><i class="fa-solid fa-users"></i></div>
+        <div class="admin-kpi__body">
+          <p class="admin-kpi__lbl">Watumiaji</p>
+          <p class="admin-kpi__val" data-kpi="users">—</p>
+          <p class="admin-kpi__sub muted small" data-kpi-sub="users">—</p>
+        </div>
+      </article>
+      <article class="admin-kpi glass">
+        <div class="admin-kpi__icon admin-kpi__icon--violet"><i class="fa-solid fa-chart-line"></i></div>
+        <div class="admin-kpi__body">
+          <p class="admin-kpi__lbl">Mapendekezo leo</p>
+          <p class="admin-kpi__val" data-kpi="today">—</p>
+          <p class="admin-kpi__sub muted small" data-kpi-sub="sessions">—</p>
+        </div>
+      </article>
+    </section>
+
+    <section class="admin-grid-2">
+      <article class="admin-panel glass">
+        <header class="admin-panel__head">
+          <h2>Mienendo — mapendekezo (siku 14)</h2>
+          <span class="admin-tag">Synthetic blend</span>
+        </header>
+        <div class="admin-chart-wrap"><canvas id="chartRecommendations" height="120"></canvas></div>
+      </article>
+      <article class="admin-panel glass">
+        <header class="admin-panel__head">
+          <h2>Njia za masomo</h2>
+        </header>
+        <div class="admin-chart-wrap admin-chart-wrap--donut"><canvas id="chartPathways" height="160"></canvas></div>
+        <ul class="admin-legend" id="pathwayLegend"></ul>
+      </article>
+    </section>
+
+    <section class="admin-grid-2">
+      <article class="admin-panel glass">
+        <header class="admin-panel__head">
+          <h2>Programme zinazotafutwa zaidi</h2>
+        </header>
+        <div class="admin-table-wrap">
+          <table class="admin-table" id="freqProgrammesTable">
+            <thead>
+              <tr>
+                <th>Programme</th>
+                <th>Chuo</th>
+                <th>Kiwango</th>
+                <th>Mapendekezo</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </article>
+      <article class="admin-panel glass">
+        <header class="admin-panel__head">
+          <h2>Shughuli za hivi karibuni</h2>
+        </header>
+        <ul class="admin-feed" id="adminActivityFeed"></ul>
+      </article>
+    </section>
+
+    <section class="admin-panel glass admin-panel--users">
+      <header class="admin-panel__head admin-panel__head--split">
+        <div>
+          <h2>Watumiaji</h2>
+          <p class="muted small">Unda, hariri, zima akaunti (CRUD)</p>
+        </div>
+        <button type="button" class="btn btn-primary btn-sm" id="adminUserCreateBtn">
+          <i class="fa-solid fa-user-plus"></i> Ongeza mtumiaji
+        </button>
+      </header>
+      <div class="admin-table-wrap">
+        <table class="admin-table admin-table--users" id="adminUsersTable">
+          <thead>
+            <tr>
+              <th>Barua pepe</th>
+              <th>Jina</th>
+              <th>Jukumu</th>
+              <th>Hali</th>
+              <th>Tarehe</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="admin-grid-3">
+      <article class="admin-panel glass admin-panel--compact">
+        <h3>Kiwango cha shahada</h3>
+        <ul class="admin-stat-list" id="awardLevelsList"></ul>
+      </article>
+      <article class="admin-panel glass admin-panel--compact">
+        <h3>Kategoria kuu</h3>
+        <ul class="admin-stat-list" id="categoriesList"></ul>
+      </article>
+      <article class="admin-panel glass admin-panel--compact">
+        <h3>Mikoa (usage)</h3>
+        <ul class="admin-stat-list" id="regionsList"></ul>
+      </article>
+    </section>
+  </main>
+
+  <dialog class="admin-modal glass" id="adminUserModal">
+    <form method="dialog" class="admin-modal__form" id="adminUserForm">
+      <header class="admin-modal__head">
+        <h3 id="adminUserModalTitle">Mtumiaji</h3>
+        <button type="button" class="admin-modal__close" id="adminUserModalClose" aria-label="Funga">&times;</button>
+      </header>
+      <input type="hidden" name="user_id" id="adminUserId" />
+      <label class="admin-field">
+        <span>Barua pepe</span>
+        <input type="email" name="email" id="adminUserEmail" required autocomplete="username" />
+      </label>
+      <label class="admin-field">
+        <span>Jina kamili</span>
+        <input type="text" name="full_name" id="adminUserName" autocomplete="name" />
+      </label>
+      <label class="admin-field">
+        <span>Jukumu</span>
+        <select name="role" id="adminUserRole">
+          <option value="student">student</option>
+          <option value="staff">staff</option>
+          <option value="admin">admin</option>
+        </select>
+      </label>
+      <label class="admin-field" id="adminUserActiveWrap">
+        <span>Hali</span>
+        <select name="is_active" id="adminUserActive">
+          <option value="1">Hai</option>
+          <option value="0">Imezimwa</option>
+        </select>
+      </label>
+      <label class="admin-field">
+        <span>Nenosiri <small class="muted">(acha tupu usipobadilisha)</small></span>
+        <input type="password" name="password" id="adminUserPassword" autocomplete="new-password" />
+      </label>
+      <p class="admin-form-error hidden" id="adminUserFormError"></p>
+      <footer class="admin-modal__foot">
+        <button type="button" class="btn btn-ghost" id="adminUserCancel">Ghairi</button>
+        <button type="submit" class="btn btn-primary" id="adminUserSave">Hifadhi</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <div class="admin-toast hidden" id="adminToast" role="status"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" crossorigin="anonymous"></script>
+  <script src="/static/admin/admin.js" defer></script>
+</body>
+</html>

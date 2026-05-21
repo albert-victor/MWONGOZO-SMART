@@ -33,6 +33,11 @@ SUBJECT_ALIASES = {
     "DIVINITY": "Divinity",
 }
 
+# Arts / humanities & business combinations — must not route into health or STEM programmes.
+ARTS_HUMANITIES_COMBINATIONS: frozenset[str] = frozenset({"HGE", "HGL", "HKL", "HGK"})
+NON_SCIENCE_COMBINATIONS: frozenset[str] = frozenset({"HGE", "HGL", "HKL", "HGK", "ECA", "CBE"})
+SCIENCE_COMBINATIONS: frozenset[str] = frozenset({"PCB", "PCM", "PGM", "CBG", "CBN"})
+
 COMBINATION_MAP = {
     # Common A-Level combinations used in the UI and matching logic.
     "PCB": ["Physics", "Chemistry", "Biology"],
@@ -76,10 +81,58 @@ def expand_combination(combination: str | None) -> list[str]:
     return []
 
 
+def normalize_combination_code(combination: str | None) -> str:
+    return "".join(ch for ch in (combination or "").upper() if ch.isalpha())
+
+
+def is_arts_humanities_combination(combination: str | None) -> bool:
+    return normalize_combination_code(combination) in ARTS_HUMANITIES_COMBINATIONS
+
+
+def is_non_science_combination(combination: str | None) -> bool:
+    return normalize_combination_code(combination) in NON_SCIENCE_COMBINATIONS
+
+
+def is_science_combination(combination: str | None) -> bool:
+    return normalize_combination_code(combination) in SCIENCE_COMBINATIONS
+
+
+def resolve_student_combination(
+    combination: str | None,
+    a_level_subjects: Iterable[object],
+) -> str:
+    """Resolve A-Level combination from explicit code or principal subjects."""
+    explicit = normalize_combination_code(combination)
+    if explicit:
+        return explicit
+    principals: list[str] = []
+    for item in a_level_subjects:
+        subject = getattr(item, "subject", item)
+        is_principal = getattr(item, "principal", True)
+        if is_principal:
+            principals.append(str(subject))
+    if not principals:
+        principals = [str(getattr(item, "subject", item)) for item in a_level_subjects]
+    inferred = infer_combination(principals)
+    return normalize_combination_code(inferred)
+
+
 def infer_combination(subjects: Iterable[str]) -> str | None:
-    # Try to guess the combination from a set of subjects.
+    # Try to guess the combination from a set of subjects (exact cluster match first).
     normalized = {normalize_subject_name(subject) for subject in subjects}
+    best: str | None = None
+    best_size = 0
     for code, cluster in COMBINATION_MAP.items():
-        if set(cluster).issubset(normalized):
-            return code
-    return None
+        cluster_set = {normalize_subject_name(item) for item in cluster}
+        if cluster_set.issubset(normalized):
+            if len(cluster_set) > best_size:
+                best = code
+                best_size = len(cluster_set)
+    return best
+
+
+def combination_blocks_stem_programme(combination: str | None, category_value: str) -> bool:
+    """True when a non-science combination must not enter health/STEM programme categories."""
+    if not is_non_science_combination(combination):
+        return False
+    return category_value in {"health", "science", "engineering", "computing", "tech"}

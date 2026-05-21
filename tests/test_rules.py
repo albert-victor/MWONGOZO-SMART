@@ -8,13 +8,47 @@ def test_muhas_md_requires_strict_pcb():
     student = StudentResult(
         pathway=AdmissionPathway.A_LEVEL,
         a_level_subjects=[
-            SubjectGrade(subject="Physics", grade="D"),
-            SubjectGrade(subject="Chemistry", grade="D"),
-            SubjectGrade(subject="Biology", grade="D"),
+            SubjectGrade(subject="Physics", grade="C"),
+            SubjectGrade(subject="Chemistry", grade="C"),
+            SubjectGrade(subject="Biology", grade="C"),
         ],
     )
     result = TCURuleEngine().evaluate(student, programme)
     assert result.eligible is True
+
+
+def test_arts_combination_blocks_health_programme():
+    programme = programme_index()["AKU01"]
+    student = StudentResult(
+        pathway=AdmissionPathway.A_LEVEL,
+        combination="HGE",
+        a_level_subjects=[
+            SubjectGrade(subject="History", grade="B", principal=True),
+            SubjectGrade(subject="Geography", grade="B", principal=True),
+            SubjectGrade(subject="Economics", grade="C", principal=True),
+        ],
+    )
+    result = TCURuleEngine().evaluate(student, programme)
+    assert result.eligible is False
+    assert any(issue.rule_id == "combination_stem" for issue in result.issues)
+
+
+def test_health_anchor_requires_biology_or_chemistry_science_base():
+    from mwongozo_smart.data.guidebook_data import PROGRAMMES
+
+    health_programme = next(p for p in PROGRAMMES if p.category.value == "health")
+    student = StudentResult(
+        pathway=AdmissionPathway.A_LEVEL,
+        combination="HGE",
+        a_level_subjects=[
+            SubjectGrade(subject="History", grade="B", principal=True),
+            SubjectGrade(subject="Geography", grade="B", principal=True),
+            SubjectGrade(subject="Economics", grade="C", principal=True),
+        ],
+    )
+    result = TCURuleEngine().evaluate(student, health_programme)
+    assert result.eligible is False
+    assert any(issue.rule_id == "health_anchor" for issue in result.issues)
 
 
 def test_aku_nursing_rejects_wrong_subject_mix():

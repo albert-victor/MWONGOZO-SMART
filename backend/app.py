@@ -1,15 +1,15 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 from pathlib import Path
 
 import httpx
-from fastapi import APIRouter, FastAPI, HTTPException, Query, Request
+from fastapi import APIRouter, FastAPI, HTTPException, Query, Request, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 
-from mwongozo_smart.core.calculator import get_principal_summary
+from mwongozo_smart.core.calculator import csee_o_level_entry_gate, get_principal_summary
 from mwongozo_smart.core.engine import RecommendationEngine
 from mwongozo_smart.core.models import AdmissionPathway, ALevelScheme, StudentResult, SubjectGrade
 from mwongozo_smart.data.guidebook_data import PROGRAMMES
@@ -27,8 +27,19 @@ from mwongozo_smart.exam_lookup.acsee_service import (
     necta_acsee_to_student_result,
     student_result_to_api_input,
 )
-from mwongozo_smart.loan_tracking import build_loan_tracking, list_demo_references, normalize_heslb_ref
+from mwongozo_smart.loan_guidance import build_loan_guidance
+from mwongozo_smart.loan_tracking import (
+    build_loan_tracking,
+    list_demo_references,
+    list_demo_students,
+    normalize_heslb_ref,
+)
 from mwongozo_smart.utils.combination_helper import COMBINATION_MAP
+from mwongozo_smart.services.auth_deps import get_auth_token, get_or_set_session_id
+from mwongozo_smart.services.auth_service import resolve_user
+from mwongozo_smart.services.profile_service import capture_after_recommend
+from backend.auth_routes import auth_router
+from backend.admin_routes import admin_router
 
 
 engine = RecommendationEngine()
@@ -48,13 +59,20 @@ def get_csee_result_service() -> CseeResultService:
     return csee_result_service
 
 
-def build_recommendation_response(student: StudentInput, limit: int) -> dict[str, object]:
+def build_recommendation_response(
+    student: StudentInput,
+    limit: int,
+    *,
+    session_id: str | None = None,
+    user_id: int | None = None,
+) -> dict[str, object]:
     student_result = student.to_student_result()
+    entry_ok, entry_msg, csee_div = csee_o_level_entry_gate(student_result)
     result = engine.recommend(student_result, limit=limit)
     review_limit = min(180, max(80, limit + 40))
     review = engine.review_candidates(student_result, limit=review_limit)
     combinations = engine.suggest_combinations(student_result)
-    return {
+    payload: dict[str, object] = {
         "input": student.model_dump(),
         "loaded_programmes": len(PROGRAMMES),
         "count": len(result),
@@ -62,6 +80,23 @@ def build_recommendation_response(student: StudentInput, limit: int) -> dict[str
         "review_candidates": [item.model_dump(mode="json") for item in review],
         "combination_suggestions": [item.model_dump(mode="json") for item in combinations],
     }
+    if student_result.pathway == AdmissionPathway.O_LEVEL:
+        payload["csee_division"] = csee_div
+        if not entry_ok:
+            payload["csee_entry_blocked"] = True
+            payload["csee_entry_message"] = entry_msg
+    if session_id:
+        profile_meta = capture_after_recommend(
+            session_id=session_id,
+            user_id=user_id,
+            student=student_result,
+            source=student.source,
+            exam_number=student.exam_number,
+            exam_year=student.exam_year,
+        )
+        if profile_meta:
+            payload["profile"] = profile_meta
+    return payload
 
 
 class LoanTrackRequest(BaseModel):
@@ -98,7 +133,11 @@ class StudentInput(BaseModel):
     preferred_institutions: list[str] = Field(default_factory=list)
     language: str = "english"
     equivalent_qualification: str | None = None
+    csee_division: str | None = None
     notes: list[str] = Field(default_factory=list)
+    exam_number: str | None = None
+    exam_year: int | None = Field(default=None, ge=1990, le=2100)
+    source: str = Field(default="recommend_form", max_length=64)
 
     def to_student_result(self) -> StudentResult:
         # Convert request JSON into the internal model used by the engine.
@@ -112,6 +151,7 @@ class StudentInput(BaseModel):
             preferred_institutions=self.preferred_institutions,
             language=self.language,
             equivalent_qualification=self.equivalent_qualification,
+            csee_division=self.csee_division,
             notes=self.notes,
         )
 
@@ -227,9 +267,19 @@ def home() -> str:
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
+def health() -> dict[str, object]:
     # Simple liveness check for deployment and debugging.
-    return {"status": "ok", "engine": "mwongozo-smart"}
+    payload: dict[str, object] = {"status": "ok", "engine": "mwongozo-smart"}
+    try:
+        from mwongozo_smart.db.config import catalogue_read_mode, catalogue_write_mode
+        from mwongozo_smart.db.session import mysql_ping
+
+        payload["catalogue_read"] = catalogue_read_mode().value
+        payload["catalogue_write"] = catalogue_write_mode().value
+        payload["mysql"] = "reachable" if mysql_ping() else "unavailable"
+    except Exception:
+        pass
+    return payload
 
 
 @app.get("/favicon.ico", include_in_schema=False)
@@ -240,12 +290,23 @@ def favicon() -> Response:
 @app.get("/meta")
 def meta() -> dict[str, object]:
     # Basic catalog statistics for debugging and quick inspection.
-    return {
+    payload: dict[str, object] = {
         "programmes_loaded": len(PROGRAMMES),
+        "institutions_in_memory": len(INSTITUTIONS),
         "institutions_covered": sorted({programme.institution_code for programme in PROGRAMMES}),
         "pathways_supported": [item.value for item in AdmissionPathway],
         "a_level_schemes": [item.value for item in ALevelScheme],
     }
+    try:
+        from mwongozo_smart.db.config import catalogue_read_mode, catalogue_write_mode
+        from mwongozo_smart.db.session import mysql_catalogue_counts
+
+        payload["catalogue_read"] = catalogue_read_mode().value
+        payload["catalogue_write"] = catalogue_write_mode().value
+        payload["mysql_row_counts"] = mysql_catalogue_counts()
+    except Exception:
+        pass
+    return payload
 
 
 @app.get("/programmes")
@@ -275,11 +336,16 @@ def programmes() -> list[dict[str, object]]:
 @app.post("/recommend")
 def recommend(
     student: StudentInput,
-    limit: int = Query(120, ge=1, le=250, description="Max eligible recommendations to return"),
+    request: Request,
+    response: Response,
+    limit: int = Query(150, ge=1, le=250, description="Max eligible recommendations to return"),
 ) -> dict[str, object]:
     # Main API: evaluate the student and return ranked eligible programmes.
     try:
-        return build_recommendation_response(student, limit=limit)
+        session_id = get_or_set_session_id(request, response)
+        user = resolve_user(get_auth_token(request))
+        user_id = int(user["id"]) if user else None
+        return build_recommendation_response(student, limit=limit, session_id=session_id, user_id=user_id)
     except Exception as exc:  # pragma: no cover - defensive API guard
         return JSONResponse(status_code=500, content={"detail": f"Recommendation engine failed: {exc}"})
 
@@ -335,10 +401,15 @@ async def student_results_recommend(body: StudentResultsRecommendRequest) -> dic
 @app.post("/student/profile/recommend")
 def student_profile_recommend(
     student: StudentInput,
-    limit: int = Query(120, ge=1, le=250, description="Max eligible recommendations to return"),
+    request: Request,
+    response: Response,
+    limit: int = Query(150, ge=1, le=250, description="Max eligible recommendations to return"),
 ) -> dict[str, object]:
     try:
-        return build_recommendation_response(student, limit=limit)
+        session_id = get_or_set_session_id(request, response)
+        user = resolve_user(get_auth_token(request))
+        user_id = int(user["id"]) if user else None
+        return build_recommendation_response(student, limit=limit, session_id=session_id, user_id=user_id)
     except Exception as exc:  # pragma: no cover - defensive API guard
         return JSONResponse(status_code=500, content={"detail": f"Recommendation engine failed: {exc}"})
 
@@ -361,8 +432,22 @@ def recommend_grouped(
 
 
 @app.get("/loan/demo-references")
-def loan_demo_references() -> dict[str, object]:
-    return {"references": list_demo_references(), "demo_mode": True}
+def loan_demo_references(
+    language: str = Query("sw", pattern="^(sw|en)$"),
+) -> dict[str, object]:
+    return {
+        "references": list_demo_references(),
+        "students": list_demo_students(language),
+        "demo_mode": True,
+    }
+
+
+@app.get("/loan/guidance")
+def loan_guidance(
+    exam_level: str = Query("o_level", pattern="^(a_level|o_level)$"),
+    language: str = Query("sw", pattern="^(sw|en)$"),
+) -> dict[str, object]:
+    return build_loan_guidance(exam_level=exam_level, language=language)
 
 
 @app.post("/loan/track")
@@ -552,6 +637,8 @@ async def student_acsee_recommend(payload: AcseeRecommendRequest) -> dict[str, o
 
 
 app.include_router(student_router)
+app.include_router(auth_router)
+app.include_router(admin_router)
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
 if _STATIC_DIR.is_dir():
