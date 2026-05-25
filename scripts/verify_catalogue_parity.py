@@ -46,6 +46,7 @@ def _diff_maps(label: str, left: dict[str, str], right: dict[str, str]) -> list[
 def main() -> int:
     from mwongozo_smart.data.guidebook_data import _CATALOG_PROGRAMMES
     from mwongozo_smart.data.institutions import _DEFAULT_INSTITUTIONS
+    from mwongozo_smart.db.catalogue_merge import dedupe_institutions_case_insensitive
     from mwongozo_smart.db.config import CatalogueReadMode
     from mwongozo_smart.db.repositories.catalogue import CatalogueRepository
     from mwongozo_smart.db.session import mysql_catalogue_status, mysql_ping
@@ -63,8 +64,11 @@ def main() -> int:
     sqlite_repo = CatalogueRepository(read_mode=CatalogueReadMode.SQLITE, write_mode=CatalogueReadMode.SQLITE)
     mysql_repo = CatalogueRepository(read_mode=CatalogueReadMode.MYSQL, write_mode=CatalogueReadMode.SQLITE)
 
+    preferred = frozenset(i.code for i in _DEFAULT_INSTITUTIONS)
     sqlite_inst = sqlite_repo.load_institutions(_DEFAULT_INSTITUTIONS)
     mysql_inst = mysql_repo.load_institutions(_DEFAULT_INSTITUTIONS)
+    sqlite_inst, _ = dedupe_institutions_case_insensitive(sqlite_inst, preferred_codes=preferred)
+    mysql_inst, _ = dedupe_institutions_case_insensitive(mysql_inst, preferred_codes=preferred)
     sqlite_prog = sqlite_repo.load_programmes(_CATALOG_PROGRAMMES)
     mysql_prog = mysql_repo.load_programmes(_CATALOG_PROGRAMMES)
 

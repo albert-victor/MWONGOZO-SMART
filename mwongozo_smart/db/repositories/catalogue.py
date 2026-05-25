@@ -7,7 +7,7 @@ from typing import Any
 from mwongozo_smart.core.models import AdmissionRequirement, Institution, Programme
 from mwongozo_smart.data import institution_classify
 from mwongozo_smart.data import sqlite_store
-from mwongozo_smart.db.catalogue_merge import merge_institutions, merge_programmes
+from mwongozo_smart.db.catalogue_merge import dedupe_institutions_case_insensitive, merge_institutions, merge_programmes
 from mwongozo_smart.db.config import CatalogueReadMode, CatalogueWriteMode, catalogue_read_mode, catalogue_write_mode
 from mwongozo_smart.db.session import apply_catalogue_schema, mysql_connection, mysql_ping, mysql_table_exists
 
@@ -170,6 +170,7 @@ class MysqlCatalogueStore:
             apply_catalogue_schema(connection)
 
     def upsert_institutions(self, institutions: list[Institution]) -> int:
+        institutions, _ = dedupe_institutions_case_insensitive(institutions)
         self.ensure_schema()
         count = 0
         with mysql_connection() as connection:

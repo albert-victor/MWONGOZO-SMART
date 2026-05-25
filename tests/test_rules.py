@@ -126,6 +126,46 @@ def test_o_level_can_match_certificate_route():
     assert result.eligible is True
 
 
+def test_computer_science_rejects_without_math_physics_or_bam():
+    programme = programme_index()["IFM01"]
+    student = StudentResult(
+        pathway=AdmissionPathway.A_LEVEL,
+        a_level_subjects=[
+            SubjectGrade(subject="Computer Science", grade="B", principal=True),
+            SubjectGrade(subject="Economics", grade="C", principal=True),
+        ],
+    )
+    result = TCURuleEngine().evaluate(student, programme)
+    assert result.eligible is False
+    assert any(issue.rule_id == "computing_science_anchor" for issue in result.issues)
+
+
+def test_computer_science_accepts_physics_at_grade_e():
+    programme = programme_index()["IFM01"]
+    student = StudentResult(
+        pathway=AdmissionPathway.A_LEVEL,
+        a_level_subjects=[
+            SubjectGrade(subject="Physics", grade="E", principal=True),
+            SubjectGrade(subject="Economics", grade="C", principal=True),
+        ],
+    )
+    result = TCURuleEngine().evaluate(student, programme)
+    assert not any(issue.rule_id == "computing_science_anchor" for issue in result.issues)
+
+
+def test_computer_science_accepts_bam_at_grade_e():
+    programme = programme_index()["IFM02"]
+    student = StudentResult(
+        pathway=AdmissionPathway.A_LEVEL,
+        a_level_subjects=[
+            SubjectGrade(subject="Basic Applied Mathematics", grade="E", principal=True),
+            SubjectGrade(subject="Commerce", grade="C", principal=True),
+        ],
+    )
+    result = TCURuleEngine().evaluate(student, programme)
+    assert not any(issue.rule_id == "computing_science_anchor" for issue in result.issues)
+
+
 def test_o_level_mathematics_alias_supports_college_routes():
     programme = programme_index()["A3IPS04"]
     student = StudentResult(

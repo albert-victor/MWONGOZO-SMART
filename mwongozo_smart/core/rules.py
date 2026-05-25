@@ -159,67 +159,93 @@ class TCURuleEngine:
                 )
 
         if programme.category in {ProgrammeCategory.ENGINEERING, ProgrammeCategory.TECH, ProgrammeCategory.COMPUTING}:
-            # Engineering and tech programmes need strong math/science anchors.
-            if college_route:
-                stem_ok, stem_msg = o_level_stem_engineering_eligible(student)
-                math_ok = any(
-                    student_has_subject(student, name, "D") for name in ("Basic Mathematics", "Mathematics")
+            is_computing = self._is_computing_related_programme(programme)
+
+            if is_computing:
+                computing_anchor_ok = self._has_computing_science_anchor(student, college_route=college_route)
+                add_trace(
+                    "computing_science_anchor",
+                    "Computing science anchor",
+                    computing_anchor_ok,
+                    (
+                        "Computer Science and related programmes require Advanced Mathematics, "
+                        "Basic Applied Mathematics (BAM), or Physics at grade E or better "
+                        "(CSEE Mathematics/Basic Mathematics for certificate and diploma routes)."
+                    ),
+                    5.0,
                 )
-                if not math_ok:
-                    add_trace(
-                        "college_stem_math",
-                        "CSEE mathematics for STEM/TVET",
-                        False,
-                        "Certificate/diploma tech routes require CSEE Mathematics or Basic Mathematics at grade D or better.",
-                    )
+                if not computing_anchor_ok:
                     issues.append(
                         EligibilityIssue(
-                            rule_id="college_stem_math",
-                            message="Tech and engineering college routes require CSEE Mathematics or Basic Mathematics (grade D+).",
-                        )
-                    )
-                anchor_ok = stem_ok
-                if not stem_ok:
-                    add_trace(
-                        "o_level_stem_engineering_gate",
-                        "CSEE STEM for engineering/tech",
-                        False,
-                        stem_msg,
-                        6.0,
-                    )
-                    issues.append(
-                        EligibilityIssue(
-                            rule_id="o_level_stem_engineering_gate",
-                            message=stem_msg,
+                            rule_id="computing_science_anchor",
+                            message=(
+                                "Computer Science and related programmes require Advanced Mathematics, "
+                                "Basic Applied Mathematics (BAM), or Physics at grade E or better."
+                            ),
                         )
                     )
             else:
-                math_ok = student_has_subject(student, "Advanced Mathematics", "D") or student_has_subject(
-                    student, "Basic Applied Mathematics", "D"
-                )
-                phys_chem_ok = student_has_subject(student, "Physics", "D") and student_has_subject(
-                    student, "Chemistry", "D"
-                )
-                anchor_ok = math_ok or phys_chem_ok
-            add_trace(
-                "engineering_anchor",
-                "STEM anchor",
-                anchor_ok,
-                (
-                    "Engineering/Tech bachelor routes require Advanced/Basic Applied Mathematics (D+) "
-                    "or both Physics and Chemistry at D+."
-                ),
-                5.0,
-            )
-            if not anchor_ok:
-                issues.append(
-                    EligibilityIssue(
-                        rule_id="engineering_anchor",
-                        message="Engineering/Tech programmes require at least one science or mathematics principal subject.",
+                # Engineering and tech programmes need strong math/science anchors.
+                if college_route:
+                    stem_ok, stem_msg = o_level_stem_engineering_eligible(student)
+                    math_ok = any(
+                        student_has_subject(student, name, "D") for name in ("Basic Mathematics", "Mathematics")
                     )
+                    if not math_ok:
+                        add_trace(
+                            "college_stem_math",
+                            "CSEE mathematics for STEM/TVET",
+                            False,
+                            "Certificate/diploma tech routes require CSEE Mathematics or Basic Mathematics at grade D or better.",
+                        )
+                        issues.append(
+                            EligibilityIssue(
+                                rule_id="college_stem_math",
+                                message="Tech and engineering college routes require CSEE Mathematics or Basic Mathematics (grade D+).",
+                            )
+                        )
+                    anchor_ok = stem_ok
+                    if not stem_ok:
+                        add_trace(
+                            "o_level_stem_engineering_gate",
+                            "CSEE STEM for engineering/tech",
+                            False,
+                            stem_msg,
+                            6.0,
+                        )
+                        issues.append(
+                            EligibilityIssue(
+                                rule_id="o_level_stem_engineering_gate",
+                                message=stem_msg,
+                            )
+                        )
+                else:
+                    math_ok = student_has_subject(student, "Advanced Mathematics", "D") or student_has_subject(
+                        student, "Basic Applied Mathematics", "D"
+                    )
+                    phys_chem_ok = student_has_subject(student, "Physics", "D") and student_has_subject(
+                        student, "Chemistry", "D"
+                    )
+                    anchor_ok = math_ok or phys_chem_ok
+                add_trace(
+                    "engineering_anchor",
+                    "STEM anchor",
+                    anchor_ok,
+                    (
+                        "Engineering/Tech bachelor routes require Advanced/Basic Applied Mathematics (D+) "
+                        "or both Physics and Chemistry at D+."
+                    ),
+                    5.0,
                 )
+                if not anchor_ok:
+                    issues.append(
+                        EligibilityIssue(
+                            rule_id="engineering_anchor",
+                            message="Engineering/Tech programmes require at least one science or mathematics principal subject.",
+                        )
+                    )
 
-            if any(tag in {"civil", "architecture"} for tag in programme.tags):
+            if not is_computing and any(tag in {"civil", "architecture"} for tag in programme.tags):
                 if college_route:
                     math_ok = self._has_any_subjects(student, ["Basic Mathematics", "Mathematics", "Physics"])
                     if not math_ok:
@@ -237,7 +263,7 @@ class TCURuleEngine:
                         )
                     )
 
-            if any(tag in {"electrical", "chemical"} for tag in programme.tags):
+            if not is_computing and any(tag in {"electrical", "chemical"} for tag in programme.tags):
                 if college_route:
                     sci_ok = self._has_any_subjects(student, ["Physics", "Chemistry", "Basic Mathematics", "Mathematics"])
                     if not sci_ok:
@@ -252,26 +278,6 @@ class TCURuleEngine:
                         EligibilityIssue(
                             rule_id="engineering_science_anchor",
                             message="Electrical/Chemical pathways require Physics or Chemistry as a principal subject.",
-                        )
-                    )
-
-            if any(tag in {"computer", "it"} for tag in programme.tags):
-                if college_route:
-                    computer_ok = self._has_any_subjects(student, ["Basic Mathematics", "Mathematics", "Computer Studies", "Computer Science"])
-                else:
-                    computer_ok = self._has_any_principal_subjects(student, ["Advanced Mathematics", "Computer Science"])
-                add_trace(
-                    "engineering_computer_anchor",
-                    "Computing anchor",
-                    computer_ok,
-                    "Computer/IT pathways require Advanced Mathematics or Computer Science as a principal subject.",
-                    5.0,
-                )
-                if not computer_ok:
-                    issues.append(
-                        EligibilityIssue(
-                            rule_id="engineering_computer_anchor",
-                            message="Computer/IT pathways require Advanced Mathematics or Computer Science as a principal subject.",
                         )
                     )
 
@@ -705,6 +711,24 @@ class TCURuleEngine:
         for subject in student.a_level_subjects + student.o_level_subjects:
             if normalize_subject_name(subject.subject).lower() in subject_set:
                 return True
+        return False
+
+    def _is_computing_related_programme(self, programme: Programme) -> bool:
+        tags = {tag.lower() for tag in programme.tags}
+        if programme.category == ProgrammeCategory.COMPUTING:
+            return True
+        return bool(tags & {"computer", "it", "ict", "software", "computing"})
+
+    def _has_computing_science_anchor(
+        self, student: StudentResult, *, college_route: bool, minimum_grade: str = "E"
+    ) -> bool:
+        for subject in ("Advanced Mathematics", "Basic Applied Mathematics", "Physics"):
+            if student_has_subject(student, subject, minimum_grade):
+                return True
+        if college_route:
+            for subject in ("Basic Mathematics", "Mathematics"):
+                if student_has_subject(student, subject, minimum_grade):
+                    return True
         return False
 
     def _has_any_subjects(self, student: StudentResult, subjects: Iterable[str]) -> bool:

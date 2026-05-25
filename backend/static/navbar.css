@@ -72,7 +72,8 @@ body[data-theme="light"] #landingView .landing-topbar.topbar-premium {
   top: max(var(--topbar-offset), env(safe-area-inset-top));
   left: 50%;
   transform: translateX(-50%);
-  width: min(calc(100vw - 20px), var(--topbar-max-w));
+  width: min(100%, var(--topbar-max-w));
+  max-width: calc(100% - 20px);
   min-height: var(--topbar-h);
   z-index: 120;
   display: flex;
@@ -81,6 +82,7 @@ body[data-theme="light"] #landingView .landing-topbar.topbar-premium {
   gap: var(--topbar-gap);
   padding: 6px var(--topbar-pad-x);
   border-radius: var(--topbar-radius);
+  box-sizing: border-box;
   border: 1px solid var(--nav-surface-border);
   background:
     linear-gradient(180deg, var(--nav-surface-highlight) 0%, transparent 48%),
@@ -420,7 +422,11 @@ body[data-theme="light"] .topbar-premium .btn-primary.btn-sm[data-enter-app] {
   }
 
   #dashboardShell .app-topbar.topbar-premium {
-    width: min(calc(100vw - 16px), var(--topbar-max-w));
+    left: 0;
+    right: 0;
+    transform: none;
+    width: 100%;
+    max-width: 100%;
     padding: 6px 12px;
     border-radius: 14px;
   }
@@ -456,14 +462,24 @@ body[data-theme="light"] .topbar-premium .btn-primary.btn-sm[data-enter-app] {
 }
 
 @media (max-width: 480px) {
-  .topbar-actions,
-  .landing-topbar__actions,
-  .app-topbar__actions {
-    gap: 6px;
+  :root {
+    --topbar-h: 54px;
+    --topbar-pad-x: 10px;
   }
 
   .topbar-premium .lang-switch__btn {
-    min-width: 34px;
-    padding: 0 8px;
+    min-width: 40px;
+    min-height: 40px;
+    padding: 0 10px;
+  }
+
+  .topbar-premium .btn {
+    min-height: 40px;
+  }
+
+  .topbar-brand__glyph {
+    width: 28px;
+    height: 28px;
+    flex-shrink: 0;
   }
 }

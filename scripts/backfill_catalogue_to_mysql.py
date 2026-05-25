@@ -27,6 +27,7 @@ def main() -> int:
     from mwongozo_smart.data import sqlite_store
     from mwongozo_smart.data.guidebook_data import _CATALOG_PROGRAMMES
     from mwongozo_smart.data.institutions import _DEFAULT_INSTITUTIONS
+    from mwongozo_smart.db.catalogue_merge import dedupe_institutions_case_insensitive
     from mwongozo_smart.db.repositories.catalogue import MysqlCatalogueStore
     from mwongozo_smart.db.session import mysql_ping
 
@@ -36,6 +37,20 @@ def main() -> int:
 
     institutions = sqlite_store.load_institutions(_DEFAULT_INSTITUTIONS, seed_defaults=True)
     programmes = sqlite_store.load_programmes(_CATALOG_PROGRAMMES, seed_defaults=True)
+    raw_inst = len(institutions)
+    preferred = frozenset(i.code for i in _DEFAULT_INSTITUTIONS)
+    institutions, alias_map = dedupe_institutions_case_insensitive(
+        institutions, preferred_codes=preferred
+    )
+    if raw_inst != len(institutions):
+        print(
+            f"Collapsed {raw_inst - len(institutions)} duplicate institution code(s) "
+            f"(case variants) before MySQL upsert."
+        )
+        if alias_map:
+            collapsed = sorted({k for k, v in alias_map.items() if k != v and k.upper() == v})
+            if collapsed:
+                print(f"  Aliases -> canonical: {', '.join(f'{k}->{alias_map[k]}' for k in collapsed[:12])}")
     print(f"Loaded {len(institutions)} institutions, {len(programmes)} programmes from SQLite.")
 
     if args.dry_run:

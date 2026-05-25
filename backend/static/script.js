@@ -3674,27 +3674,39 @@
       '" data-match="' +
       (isReview ? "review" : "direct") +
       '">' +
-      '<td class="rec-td-num">' +
+      '<td class="rec-td-num" data-label="' +
+      escapeHtmlAttr(L.results_col_rank) +
+      '">' +
       escapeHtml(String(rec.rank != null ? rec.rank : "—")) +
-      '</td><td class="rec-td-inst" title="' +
+      '</td><td class="rec-td-inst" data-label="' +
+      escapeHtmlAttr(L.results_col_inst) +
+      '" title="' +
       escapeHtmlAttr(instTitle || instName) +
       '">' +
       formatInstitutionCellHTML(rec) +
-      '</td><td class="rec-td-prog" title="' +
+      '</td><td class="rec-td-prog" data-label="' +
+      escapeHtmlAttr(L.results_col_prog) +
+      '" title="' +
       escapeHtmlAttr(progName) +
       '"><strong>' +
       escapeHtml(progName) +
-      '</strong></td><td class="rec-td-region" title="' +
+      '</strong></td><td class="rec-td-region" data-label="' +
+      escapeHtmlAttr(L.results_col_region) +
+      '" title="' +
       escapeHtmlAttr(regionName) +
       '">' +
       escapeHtml(regionName) +
-      '</td><td class="rec-td-pts" title="' +
+      '</td><td class="rec-td-pts" data-label="' +
+      escapeHtmlAttr(L.results_col_pts) +
+      '" title="' +
       escapeHtmlAttr(String(rec.student_points) + " / " + String(rec.minimum_required_points)) +
       '">' +
       escapeHtml(String(rec.student_points)) +
       " / " +
       escapeHtml(String(rec.minimum_required_points)) +
-      '</td><td class="rec-td-conf"><div class="rec-mini-bar ' +
+      '</td><td class="rec-td-conf" data-label="' +
+      escapeHtmlAttr(L.results_col_conf) +
+      '"><div class="rec-mini-bar ' +
       bandClass +
       '" title="' +
       escapeHtmlAttr(L.results_conf + " " + conf + "%") +
@@ -3704,9 +3716,13 @@
       bandClass +
       '">' +
       escapeHtml(String(rec.assessment.confidence) + "% · " + String(rec.assessment.confidence_band)) +
-      '</span></td><td class="rec-td-type"><span class="rec-pill">' +
+      '</span></td><td class="rec-td-type" data-label="' +
+      escapeHtmlAttr(L.results_col_type) +
+      '"><span class="rec-pill">' +
       escapeHtml(typeLabel) +
-      '</span></td><td class="rec-td-actions"><div class="rec-td-actions__inner">' +
+      '</span></td><td class="rec-td-actions" data-label="' +
+      escapeHtmlAttr(L.results_col_actions) +
+      '"><div class="rec-td-actions__inner">' +
       saveBtn +
       applyBtn +
       '<button type="button" class="btn btn-secondary btn-sm rec-detail-btn" data-rec-detail="' +

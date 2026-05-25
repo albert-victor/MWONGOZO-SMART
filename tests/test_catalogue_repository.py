@@ -1,9 +1,27 @@
 from __future__ import annotations
 
 from mwongozo_smart.core.models import Institution, Programme, ProgrammeCategory, ProgrammeAwardLevel
-from mwongozo_smart.db.catalogue_merge import merge_institution, merge_institutions, merge_programme, merge_programmes
+from mwongozo_smart.db.catalogue_merge import (
+    dedupe_institutions_case_insensitive,
+    merge_institution,
+    merge_institutions,
+    merge_programme,
+    merge_programmes,
+)
 from mwongozo_smart.db.config import CatalogueReadMode, CatalogueWriteMode
 from mwongozo_smart.db.repositories.catalogue import CatalogueRepository
+
+
+def test_dedupe_institutions_collapses_case_variants() -> None:
+    items = [
+        Institution(code="MOCU", name="Moshi Co-operative University", city="Moshi", region="Kilimanjaro", website="https://www.mocu.ac.tz/"),
+        Institution(code="MoCU", name="Moshi Co-operative University", city="Kilimanjaro", region="Kilimanjaro"),
+    ]
+    deduped, alias_map = dedupe_institutions_case_insensitive(items, preferred_codes=frozenset({"MOCU"}))
+    assert len(deduped) == 1
+    assert deduped[0].code == "MOCU"
+    assert deduped[0].website == "https://www.mocu.ac.tz/"
+    assert alias_map["MoCU"] == "MOCU"
 
 
 def test_merge_institution_prefers_loaded_non_empty_fields() -> None:

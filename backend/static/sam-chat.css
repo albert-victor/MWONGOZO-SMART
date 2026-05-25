@@ -437,7 +437,8 @@ body:has(#dashboardShell:not(.hidden)) .chat-dock__panel {
 
 @media (max-width: 520px) {
   .chat-dock__panel {
-    width: calc(100vw - 16px);
+    width: calc(100% - 16px);
+    max-width: calc(100% - 16px);
     right: 8px;
     height: min(92dvh, 640px);
     max-height: 92dvh;
